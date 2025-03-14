@@ -1,0 +1,9 @@
+{
+    "version": 4,
+    "vendor": {
+        "conan": {}
+    },
+    "include": [
+        "C:\\Users\\mihai\\rmg_coding_projects\\yt\\007_TCP_Handler\\build\\build\\generators\\CMakePresets.json"
+    ]
+}
