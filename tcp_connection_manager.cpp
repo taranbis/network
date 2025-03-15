@@ -14,14 +14,14 @@
 TCPConnectionManager::~TCPConnectionManager()
 {
     //! this could be DEAD long ago; this is why i use weak_ptr. to look for forgotten connections
-    for (std::weak_ptr<TCPConnection> conn : connections_) {
+    for (std::weak_ptr<TCPConnection> conn : m_connections) {
         if (std::shared_ptr<TCPConnection> connSpt = conn.lock()) connSpt->stop();
     }
 }
 
 void TCPConnectionManager::stop()
 {
-    finish = true;
+    m_finish = true;
 }
 
 std::string TCPConnectionManager::dnsLookup(const std::string& host, uint16_t ipVersion)
@@ -124,7 +124,7 @@ std::shared_ptr<TCPConnection> TCPConnectionManager::openConnection(const std::s
 
     const TCPConnInfo connInfo{.sockfd = sockfd, .peerIP = destAddress, .peerPort = destPort};
     std::shared_ptr<TCPConnection> conn{new TCPConnection(connInfo)};
-    connections_.push_back(conn);
+    m_connections.push_back(conn);
     return conn;
 }
 
@@ -199,7 +199,7 @@ std::shared_ptr<TCPConnection> TCPConnectionManager::openListenSocket(const std:
     std::shared_ptr<TCPConnection> conn{new TCPConnection(connInfo)};
     std::thread th(&TCPConnectionManager::checkForConnections, this, conn.get());
     th.detach();
-    connections_.push_back(conn);
+    m_connections.push_back(conn);
     return conn;
 }
 
@@ -209,10 +209,10 @@ void TCPConnectionManager::checkForConnections(TCPConnection* conn)
     fd_set set;
     SOCKET listenSockFD = conn->connData_.sockfd;
 
-    while (!finish) {
-        FD_ZERO(&set);        /* clear the set */
+    while (!m_finish) {
+        FD_ZERO(&set);        /* reset memory */
         FD_SET(listenSockFD, &set); /* add the socket file descriptor to the set */
-        int activity = select(listenSockFD + 1, &set, NULL, NULL, NULL);
+        int activity = select(-1 /*ignored*/, &set, NULL, NULL, NULL);
 
         if (activity == SOCKET_ERROR) { 
             std::cerr << "select error " << std::endl; 
@@ -223,7 +223,6 @@ void TCPConnectionManager::checkForConnections(TCPConnection* conn)
 
         // If something happened on the socket, then its an incoming connection
         if (FD_ISSET(listenSockFD, &set)) {
-
             struct sockaddr addr;
             int err = makeSockAddr(connInfo.peerIP, connInfo.peerPort, addr);
             if (err) {
@@ -240,16 +239,12 @@ void TCPConnectionManager::checkForConnections(TCPConnection* conn)
             std::cerr << "New Connection, socket fd is " << newSockFd << ", destIP is " << connInfo.peerIP
                         << ", port : " << connInfo.peerPort << std::endl;
 
-            //! should not send anything on the socket. e.g. failure for HTTP expects and HTTP message
-            // const char* message = "Welcome message \r\n";
-            // // send new connection greeting message
-            // if (send(newSockFd, message, strlen(message), 0) != strlen(message)) { perror("send"); }
-
-            // std::cerr << "Welcome message sent successfully " << std::endl;
+            //! should not send anything on the socket. e.g. failure for HTTP expects and HTTP message; 
+            // this is the job of the client; 
 
             std::shared_ptr<TCPConnection> newConn{new TCPConnection(connInfo)};
             newConn->connData_.sockfd = newSockFd;
-            connections_.push_back(newConn);
+            m_connections.push_back(newConn);
             newConnection(newConn);
         }
     }

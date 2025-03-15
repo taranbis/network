@@ -67,7 +67,11 @@ int main()
     });
     //----------------------------------------------------------------------------------------
 
+    server.broadcast(std::format("Message broadcasted from server no"));
+
     if (std::cin.get() == 'n') {
+        server.broadcast(std::format("Closing connection! Goodbye!"));
+
         clientProducerThread.request_stop();
         handler.stop();
     }
