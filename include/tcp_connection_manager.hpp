@@ -13,28 +13,35 @@ class TCPConnectionManager
 {
 public:
     boost::signals2::signal<void(std::shared_ptr<TCPConnection>)> newConnection;
-    bool finish{false};
 
 public:
-    ~TCPConnectionManager();
-    void stop();
+    ~TCPConnectionManager(); //server
+    void stop(); //server
 
-    std::string dnsLookup(const std::string& host, uint16_t ipVersion = 0);
+    std::string dnsLookup(const std::string& host, uint16_t ipVersion = 0); // helper. can be even static 
 
-    std::shared_ptr<TCPConnection> openConnection(const std::string& destAddress, uint16_t destPort);
+    //! it really sems that i don';t need the manager. everything can be taken by the TCPServer, some static and outside
+
+    //can be left outside, but the class calling this need to be aware that it has to close the connection
+    std::shared_ptr<TCPConnection> openConnection(const std::string& destAddress, uint16_t destPort); 
     std::shared_ptr<TCPConnection> openConnection(const std::string& destAddress, uint16_t destPort,
                                                   const std::string& sourceAddress, uint16_t sourcePort);
 
     //bool start(int listenSocket);
     //std::shared_ptr<TCPConnection> start(const std::string& ipAddr, uint16_t port);
 
-    std::shared_ptr<TCPConnection> openListenSocket(const std::string& ipAddr, uint16_t port);
+    std::shared_ptr<TCPConnection> openListenSocket(const std::string& ipAddr, uint16_t port); // server
+
+    const std::vector<std::weak_ptr<TCPConnection>>& getConnections() const {
+        return m_connections;
+    }
 
 private:
-    std::vector<std::weak_ptr<TCPConnection>> connections_;
+    std::vector<std::weak_ptr<TCPConnection>> m_connections; // server
+    bool m_finish{false};                                    // server
 
 private:
-    void checkForConnections(TCPConnection* conn);
+    void checkForConnections(TCPConnection* conn); // server
 };
 
 #endif //!_TCP_HANDLER_HEADER_HPP_
