@@ -26,10 +26,8 @@ int main()
         std::cerr << "WSAStartup failed: " << res << std::endl;
         return 1;
     }
+    std::clog << "Winsock initialized.\n";
 
-    std::cout << "Winsock initialized.\n";
-
-    std::atomic<bool> finish{false};
     TCPConnectionManager handler;
     TCPServer server(handler);
     server.start("127.0.0.1", 12301);
@@ -41,14 +39,14 @@ int main()
         connections.emplace_back(conn);
     });
 
-    //std::jthread serverProducerThread([&](std::stop_token st) {
-    //    static int i = 0;
-    //    while (!st.stop_requested()) {
-    //        std::string msg = "Message from Server no.: " + std::to_string(i++);
-    //        server->write(msg);
-    //        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    //    }
-    //});
+    std::jthread serverProducerThread([&](std::stop_token st) {
+        static int i = 0;
+        while (!st.stop_requested()) {
+            std::string msg = "Message from Server no.: " + std::to_string(i++);
+            server.broadcast(msg);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        }
+    });
 
     //----------------------------- Client Code ------------------ ---------------------------
     std::shared_ptr<TCPConnection> client = handler.openConnection("127.0.0.1", 12301);
@@ -57,14 +55,14 @@ int main()
         return -1;
     }
 
-    std::jthread clientProducerThread([&](std::stop_token st) {
-        static int i = 0;
-        while (!st.stop_requested()) {
-            std::string msg = "msg no. " + std::to_string(i++);
-            client->write(msg);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        }
-    });
+    //std::jthread clientProducerThread([&](std::stop_token st) {
+    //    static int i = 0;
+    //    while (!st.stop_requested()) {
+    //        std::string msg = "msg no. " + std::to_string(i++);
+    //        client->write(msg);
+    //        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    //    }
+    //});
     //----------------------------------------------------------------------------------------
 
     server.broadcast(std::format("Message broadcasted from server no"));
@@ -72,7 +70,8 @@ int main()
     if (std::cin.get() == 'n') {
         server.broadcast(std::format("Closing connection! Goodbye!"));
 
-        clientProducerThread.request_stop();
+        serverProducerThread.request_stop();
+        //clientProducerThread.request_stop();
         handler.stop();
     }
 

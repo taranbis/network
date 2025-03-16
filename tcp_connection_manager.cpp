@@ -7,6 +7,7 @@
 #include <iostream>
 #include <atomic>
 #include <memory>
+#include <format>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -125,23 +126,13 @@ std::shared_ptr<TCPConnection> TCPConnectionManager::openConnection(const std::s
     const TCPConnInfo connInfo{.sockfd = sockfd, .peerIP = destAddress, .peerPort = destPort};
     std::shared_ptr<TCPConnection> conn{new TCPConnection(connInfo)};
     m_connections.push_back(conn);
+    //newConnection(conn);
+
+    std::clog << std::format("New Connection - socket fd: {}; destIp: {}, destPort: {}", sockfd,
+                    connInfo.peerIP, connInfo.peerPort) << std::endl;
+
     return conn;
 }
-
-//std::shared_ptr<TCPConnection> TCPConnectionManager::start(const std::string& ipAddr, uint16_t port)
-//{
-//    return openListenSocket(ipAddr, port);
-//}
-//
-//bool TCPConnectionManager::start(int listenSocket)
-//{
-//    // if ((new_socket = accept(listenSocket, (struct sockaddr *)&address,
-//    //                          (socklen_t *)&addrlen)) < 0) {
-//    //     perror("accept");
-//    //     exit(EXIT_FAILURE);
-//    // }
-//    return false;
-//}
 
 std::shared_ptr<TCPConnection> TCPConnectionManager::openListenSocket(const std::string& ipAddr, uint16_t port)
 {
@@ -151,25 +142,25 @@ std::shared_ptr<TCPConnection> TCPConnectionManager::openListenSocket(const std:
     }
 
     // SOCK_STREAM for TCP, SOCK_DGRAM for UDP
-    SOCKET sockfd = socket(ipAddr.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
-    if (sockfd == INVALID_SOCKET) {
+    SOCKET listenSocket = socket(ipAddr.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+    if (listenSocket == INVALID_SOCKET) {
         std::cerr << "couldn't create socket" << std::endl;
         return {};
     }
 
     int err;
     u_long mode = 1; // 1 = non-blocking, 0 = blocking
-    //if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)  // on UNIX systems
-    if ( ioctlsocket(sockfd, FIONBIO, &mode)) {
+    //if (fcntl(listenSocket, F_SETFL, O_NONBLOCK) == -1)  // on UNIX systems
+    if (ioctlsocket(listenSocket, FIONBIO, &mode)) {
         std::cerr << "cannot set fd non blocking " << std::endl;
         return {};
     }
 
     int on = 1;
-    err = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on));
+    err = setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on));
     if (err < 0) {
         std::cerr << "couldn't set option" << std::endl;
-        closesocket(sockfd);
+        closesocket(listenSocket);
         return {};
     }
 
@@ -180,26 +171,28 @@ std::shared_ptr<TCPConnection> TCPConnectionManager::openListenSocket(const std:
         return {};
     }
 
-    err = bind(sockfd, &addr, sizeof(addr));
+    err = bind(listenSocket, &addr, sizeof(addr));
     if (err < 0) {
         // couldn't bind source address and port;
         std::cerr << "cannot bind to " << ipAddr << ":" << port << " (" << errno << ", " << strerror(errno)
                     << ")" << std::endl;
-        closesocket(sockfd);
+        closesocket(listenSocket);
         return {};
     }
 
     // the second number represents the maximum number of accepted connections, before they start being refused
-    if (listen(sockfd, 1024) < 0) {
-        closesocket(sockfd);
+    if (listen(listenSocket, 1024) < 0) {
+        closesocket(listenSocket);
         return {};
     }
 
-    const TCPConnInfo connInfo{.sockfd = sockfd, .peerIP = ipAddr, .peerPort = port};
+    const TCPConnInfo connInfo{.sockfd = listenSocket, .peerIP = ipAddr, .peerPort = port};
     std::shared_ptr<TCPConnection> conn{new TCPConnection(connInfo)};
     std::thread th(&TCPConnectionManager::checkForConnections, this, conn.get());
     th.detach();
-    m_connections.push_back(conn);
+    std::clog << std::format("New Listening Socket - socket fd: {}; on IP: {}, on Port: {}", listenSocket,
+                            connInfo.peerIP, connInfo.peerPort) << std::endl;
+    //m_connections.push_back(conn);
     return conn;
 }
 
@@ -236,9 +229,8 @@ void TCPConnectionManager::checkForConnections(TCPConnection* conn)
                 std::cerr << "accept error" << std::endl;
                 continue;
             }
-            std::cerr << "New Connection, socket fd is " << newSockFd << ", destIP is " << connInfo.peerIP
-                        << ", port : " << connInfo.peerPort << std::endl;
-
+            std::clog << std::format("New Connection - socket fd: {}; peerIp: {}, peerPort: {}", newSockFd,
+                                     connInfo.peerIP, connInfo.peerPort) << std::endl;
             //! should not send anything on the socket. e.g. failure for HTTP expects and HTTP message; 
             // this is the job of the client; 
 

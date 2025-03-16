@@ -2,6 +2,8 @@
 #define _TCP_UTIL_HEADER_HPP_ 1
 #pragma once
 
+#include <iostream>
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -24,6 +26,18 @@ inline int makeSockAddr(const std::string& ipAddr, uint16_t port, sockaddr& addr
     ipv4->sin_port = htons(port);
 
     return 0;
+}
+
+inline void printErrorMessage()
+{
+    int errCode = WSAGetLastError();
+    char* msgBuffer = nullptr;
+
+    FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, NULL, errCode, 0, (LPSTR)&msgBuffer,
+                  0, NULL);
+
+    std::cerr << "Error " << errCode << ": " << (msgBuffer ? msgBuffer : "Unknown error") << std::endl;
+    LocalFree(msgBuffer);
 }
 
 #endif

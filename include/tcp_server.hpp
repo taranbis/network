@@ -8,25 +8,25 @@
 
 class TCPServer
 {
-private:
-    TCPConnectionManager& tcpHandler_;
-    std::shared_ptr<TCPConnection> tcpConn_;
-
 public:
-    TCPServer(TCPConnectionManager& tcpHandler) : tcpHandler_(tcpHandler) {}
+    TCPServer(TCPConnectionManager& tcpHandler) : m_tcpConnMgr(tcpHandler) {}
 
     void start(const std::string& sourceAddress, uint16_t sourcePort)
     {
-        tcpConn_ = tcpHandler_.openListenSocket(sourceAddress, sourcePort);
+        m_tcpConn = m_tcpConnMgr.openListenSocket(sourceAddress, sourcePort);
     }
 
     void broadcast(const std::string& message) {
-        for (const std::weak_ptr<TCPConnection>& conn : tcpHandler_.getConnections()) {
+        for (const std::weak_ptr<TCPConnection>& conn : m_tcpConnMgr.getConnections()) {
             if (std::shared_ptr<TCPConnection> connSpt = conn.lock()) connSpt->write(message);
         }
     }
 
     // TODO: add function that does sth when new connection appears;
+
+private:
+    TCPConnectionManager& m_tcpConnMgr;
+    std::shared_ptr<TCPConnection> m_tcpConn;
 };
 
 #endif
