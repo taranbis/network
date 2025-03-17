@@ -16,7 +16,7 @@
 TCPConnectionManager::TCPConnectionManager() 
 {
     WSADATA wsaData;
-    int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    const int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (res != 0) {
         std::cerr << "WSAStartup failed: " << res << std::endl;
         return;
@@ -103,7 +103,7 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
     }
 
     // SOCK_STREAM for TCP, SOCK_DGRAM for UDP
-    SOCKET sockfd = socket(destAddress.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+    const SOCKET sockfd = socket(destAddress.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
     if (sockfd == INVALID_SOCKET) {
         std::cerr << "couldn't create socket" << std::endl;
         return {};
@@ -115,7 +115,7 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
     //     return {};
     // }
 
-    int on = !sourceAddress.empty() ? 1 : 0;
+    const int on = !sourceAddress.empty() ? 1 : 0;
     int err = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on));
     if (err) {
         std::cerr << "couldn't set SO_REUSEADDR option" << std::endl;
@@ -186,7 +186,7 @@ bool TCPConnectionManager::write(TCPConnInfo connData, const rmg::ByteArray& msg
     if (!m_connections.contains(connData.sockfd)) return false;
 
     // send returns the total number of bytes sent. Otherwise, a value of SOCKET_ERROR is returned
-    int res = send(connData.sockfd, msg.constData(), (int)msg.size(), 0);
+    const int res = send(connData.sockfd, msg.constData(), (int)msg.size(), 0);
     if (res == SOCKET_ERROR) {
         std::cerr << "send failed; msg: " << msg << ", error: " << WSAGetLastError() << "\n";
         printErrorMessage();
@@ -203,22 +203,21 @@ TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& ipAddr, ui
     }
 
     // SOCK_STREAM for TCP, SOCK_DGRAM for UDP
-    SOCKET listenSocket = socket(ipAddr.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+    const SOCKET listenSocket = socket(ipAddr.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
     if (listenSocket == INVALID_SOCKET) {
         std::cerr << "couldn't create socket" << std::endl;
         return {};
     }
 
-    int err;
-    u_long mode = 1; // 1 = non-blocking, 0 = blocking
     //if (fcntl(listenSocket, F_SETFL, O_NONBLOCK) == -1)  // on UNIX systems
+    u_long mode = 1; // 1 = non-blocking, 0 = blocking
     if (ioctlsocket(listenSocket, FIONBIO, &mode)) {
         std::cerr << "cannot set fd non blocking " << std::endl;
         return {};
     }
 
-    int on = 1;
-    err = setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on));
+    const int on = 1;
+    int err = setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on));
     if (err < 0) {
         std::cerr << "couldn't set option" << std::endl;
         closesocket(listenSocket);
