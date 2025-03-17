@@ -10,6 +10,7 @@
 
 class TCPConnectionManager;
 
+//will use later
 struct TCPKeepAliveInfo {};
 
 struct TCPConnInfo 
@@ -17,13 +18,15 @@ struct TCPConnInfo
     SOCKET sockfd {};
     std::string peerIP;
     uint16_t peerPort;
+
+    //for std::set in tcp_server
+    auto operator<=>(const TCPConnInfo& other) const = default;
 };
 
 class TCPConnection : public Connection
 {
 public:
-
-    TCPConnection(TCPConnInfo data);
+    TCPConnection(TCPConnectionManager& tcpMgr, TCPConnInfo data);
     TCPConnection(const TCPConnection& other) = delete;
 
     virtual ~TCPConnection();
@@ -33,18 +36,14 @@ public:
 
     TCPConnInfo& connData();
 
-private:
-    // read data from socket and to socket should be here not in TCPConnectionManager
-    void readDataFromSocket(std::stop_token st);
-
-    // TODO: bug if socket is closed from the other side reading continues with nothing
 protected:
     TCPConnInfo connData_{};
-    bool printReceivedData{true};
 
 private:
-    std::jthread readingThread_{};
+    TCPConnectionManager& m_tcpMgr;
     friend class TCPConnectionManager;
+    std::jthread m_readingThread{};
+    std::weak_ptr<TCPConnection> m_weakSelf;
 };
 
 #endif //!_TCP_CONNECTION_HEADER_HPP_

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <format>
+#include <set>
 
 #include "tcp_connection_manager.hpp"
 
@@ -13,12 +14,24 @@ public:
 
     void start(const std::string& sourceAddress, uint16_t sourcePort)
     {
-        m_tcpConn = m_tcpConnMgr.openListenSocket(sourceAddress, sourcePort);
+        m_listenSockData = m_tcpConnMgr.openListenSocket(sourceAddress, sourcePort);
+        m_tcpConnMgr.newConnection.connect([&](TCPConnInfo conn) { 
+                m_connections.emplace(conn);
+            });
     }
 
     void broadcast(const std::string& message) {
-        for (const std::weak_ptr<TCPConnection>& conn : m_tcpConnMgr.getConnections()) {
-            if (std::shared_ptr<TCPConnection> connSpt = conn.lock()) connSpt->write(message);
+        std::vector<TCPConnInfo> tobeRemoved;
+        for (const auto& conn : m_connections) { 
+            if (conn.sockfd == m_listenSockData.sockfd) continue;
+            int res = m_tcpConnMgr.write(conn, message);
+            if (res) { 
+                //tobeRemoved.emplace_back(conn);
+            }
+        }
+
+        for (const auto& toRemove : tobeRemoved) { 
+            m_connections.erase(toRemove);
         }
     }
 
@@ -26,7 +39,8 @@ public:
 
 private:
     TCPConnectionManager& m_tcpConnMgr;
-    std::shared_ptr<TCPConnection> m_tcpConn;
+    TCPConnInfo m_listenSockData;
+    std::set<TCPConnInfo> m_connections;
 };
 
 #endif

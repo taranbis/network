@@ -3,6 +3,9 @@
 #pragma once
 
 #include <vector>
+#include <condition_variable>
+#include <iostream>
+#include <mutex>
 
 #include <boost/signals2.hpp>
 
@@ -12,36 +15,46 @@
 class TCPConnectionManager
 {
 public:
-    boost::signals2::signal<void(std::shared_ptr<TCPConnection>)> newConnection;
+    boost::signals2::signal<void(TCPConnInfo)> newConnection;
 
 public:
-    ~TCPConnectionManager(); //server
-    void stop(); //server
+    TCPConnectionManager();
+    ~TCPConnectionManager();
+    void stop();
 
-    std::string dnsLookup(const std::string& host, uint16_t ipVersion = 0); // helper. can be even static 
-
-    //! it really sems that i don';t need the manager. everything can be taken by the TCPServer, some static and outside
+    // helper. can be even static 
+    std::string dnsLookup(const std::string& host, uint16_t ipVersion = 0); 
 
     //can be left outside, but the class calling this need to be aware that it has to close the connection
-    std::shared_ptr<TCPConnection> openConnection(const std::string& destAddress, uint16_t destPort); 
-    std::shared_ptr<TCPConnection> openConnection(const std::string& destAddress, uint16_t destPort,
+    TCPConnInfo openConnection(const std::string& destAddress, uint16_t destPort); 
+    TCPConnInfo openConnection(const std::string& destAddress, uint16_t destPort,
                                                   const std::string& sourceAddress, uint16_t sourcePort);
 
-    //bool start(int listenSocket);
-    //std::shared_ptr<TCPConnection> start(const std::string& ipAddr, uint16_t port);
+    bool write(TCPConnInfo connData, const rmg::ByteArray& msg);
+    TCPConnInfo openListenSocket(const std::string& ipAddr, uint16_t port);
 
-    std::shared_ptr<TCPConnection> openListenSocket(const std::string& ipAddr, uint16_t port); // server
+    //const std::vector<std::weak_ptr<TCPConnection>>& getConnections() const {
+    //    return m_connections;
+    //}
 
-    const std::vector<std::weak_ptr<TCPConnection>>& getConnections() const {
-        return m_connections;
-    }
-
-private:
-    std::vector<std::weak_ptr<TCPConnection>> m_connections; // server
-    bool m_finish{false};                                    // server
+    void startReadingData(const TCPConnInfo& connInfo);
+    void readDataFromSocket(TCPConnInfo connInfo, std::stop_token token);
+    void closeConn(const TCPConnInfo& connData);
 
 private:
-    void checkForConnections(TCPConnection* conn); // server
+    std::unordered_map<SOCKET, std::unique_ptr<TCPConnection>> m_connections;
+    bool m_finish{false};
+    bool m_printReceivedData{true};
+    std::unordered_map<SOCKET, std::jthread> m_readingThreads;
+    std::mutex m_mutex;
+    std::condition_variable m_cv;
+
+    std::jthread m_readingThreadsCleaner;
+    std::pair<bool, SOCKET> m_threadFinished = {false, -1};
+
+    std::thread m_checkForConnectionsThread;
+private:
+    void checkForConnections(const TCPConnInfo& connInfo);
 };
 
 #endif //!_TCP_HANDLER_HEADER_HPP_

@@ -20,24 +20,17 @@
 
 int main()
 {
-    WSADATA wsaData;
-    int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (res != 0) {
-        std::cerr << "WSAStartup failed: " << res << std::endl;
-        return 1;
-    }
-    std::clog << "Winsock initialized.\n";
 
     TCPConnectionManager handler;
     TCPServer server(handler);
     server.start("127.0.0.1", 12301);
 
-    std::vector<std::shared_ptr<TCPConnection>> connections;
-    handler.newConnection.connect([&connections](std::shared_ptr<TCPConnection> conn) {
-        conn->newBytesIncomed.connect(printingFunction);
-        conn->startReadingData();
-        connections.emplace_back(conn);
-    });
+    //std::vector<std::shared_ptr<TCPConnection>> connections;
+    //handler.newConnection.connect([/*&connections*/](const TCPConnInfo& conn) {
+    //    conn->newBytesIncomed.connect(printingFunction);
+    //    conn->startReadingData();
+    //    //connections.emplace_back(conn);
+    //});
 
     std::jthread serverProducerThread([&](std::stop_token st) {
         static int i = 0;
@@ -49,11 +42,11 @@ int main()
     });
 
     //----------------------------- Client Code ------------------ ---------------------------
-    std::shared_ptr<TCPConnection> client = handler.openConnection("127.0.0.1", 12301);
-    if (!client) {
-        std::cerr << "socket wasn't open" << std::endl;
-        return -1;
-    }
+    TCPConnInfo client = handler.openConnection("127.0.0.1", 12301);
+    //if (!client) {
+    //    std::cerr << "socket wasn't open" << std::endl;
+    //    return -1;
+    //}
 
     //std::jthread clientProducerThread([&](std::stop_token st) {
     //    static int i = 0;
@@ -68,13 +61,12 @@ int main()
     server.broadcast(std::format("Message broadcasted from server no"));
 
     if (std::cin.get() == 'n') {
-        server.broadcast(std::format("Closing connection! Goodbye!"));
+        server.broadcast(std::format("Closing TCP Server! Goodbye!"));
 
         serverProducerThread.request_stop();
         //clientProducerThread.request_stop();
         handler.stop();
     }
 
-    WSACleanup();
     return 0;
 }
