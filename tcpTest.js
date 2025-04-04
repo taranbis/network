@@ -2,8 +2,8 @@ const net = require('net');
 const readline = require('readline');
 
 const client = new net.Socket();
-const HOST = '127.0.0.1'; // Change to server IP if needed
-const PORT = 12301; // Change to the server's listening port
+const HOST = '127.0.0.1';
+const PORT = 12301;
 
 const rl = readline.createInterface({
     input: process.stdin,

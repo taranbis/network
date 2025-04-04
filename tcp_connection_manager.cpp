@@ -196,15 +196,15 @@ bool TCPConnectionManager::write(TCPConnInfo connData, const rmg::ByteArray& msg
     return true;
 }
 
-TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& ipAddr, uint16_t port)
+TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& hostAddr, uint16_t port)
 {
-    if (ipAddr.empty()) {
+    if (hostAddr.empty()) {
         std::cerr << "No peer address provided" << std::endl;
         return {};
     }
 
     // SOCK_STREAM for TCP, SOCK_DGRAM for UDP
-    const SOCKET listenSocket = socket(ipAddr.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+    const SOCKET listenSocket = socket(hostAddr.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
     if (listenSocket == INVALID_SOCKET) {
         std::cerr << "couldn't create socket" << std::endl;
         return {};
@@ -226,7 +226,7 @@ TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& ipAddr, ui
     }
 
     struct sockaddr addr;
-    err = makeSockAddr(ipAddr, port, addr);
+    err = makeSockAddr(hostAddr, port, addr);
     if (err) {
         std::cerr << "couldn't create sockAddr" << std::endl;
         return {};
@@ -235,19 +235,21 @@ TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& ipAddr, ui
     err = bind(listenSocket, &addr, sizeof(addr));
     if (err < 0) {
         // couldn't bind source address and port;
-        std::cerr << "cannot bind to " << ipAddr << ":" << port << " (" << errno << ", " << strerror(errno)
-                    << ")" << std::endl;
+        //std::cerr << "cannot bind to " << hostAddr << ":" << port << " (" << errno << ", " << strerror(errno)
+        //            << ")" << std::endl;
+        printErrorMessage();
         closesocket(listenSocket);
         return {};
     }
 
     // the second number represents the maximum number of accepted connections, before they start being refused
     if (listen(listenSocket, 1024) < 0) {
+        printErrorMessage();
         closesocket(listenSocket);
         return {};
     }
 
-    const TCPConnInfo connInfo{.sockfd = listenSocket, .peerIP = ipAddr, .peerPort = port};
+    const TCPConnInfo connInfo{.sockfd = listenSocket, .peerIP = hostAddr, .peerPort = port};
     std::shared_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
     m_checkForConnectionsThread = std::thread(&TCPConnectionManager::checkForConnections, this, connInfo);
     //th.detach(); - no longer needed
@@ -355,9 +357,7 @@ void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_to
             }
 
             if (m_printReceivedData) {
-                std::cout << "Number of bytes read: " << recvRes << std::endl;
-                std::cout << "Message: " << std::endl;
-
+                std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
                 for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
                 std::cout << std::endl;
             }

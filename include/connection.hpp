@@ -2,9 +2,6 @@
 #define _CONNECTION_HEADER_HPP_ 1
 #pragma once
 
-#include <string>
-#include <exception>
-
 #include <boost/signals2.hpp>
 
 #include "bytearray.hpp"
