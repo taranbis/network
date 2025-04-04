@@ -20,17 +20,24 @@
 
 int main()
 {
-
     TCPConnectionManager handler;
     TCPServer server(handler);
     server.start("127.0.0.1", 12301);
 
-    //std::vector<std::shared_ptr<TCPConnection>> connections;
-    //handler.newConnection.connect([/*&connections*/](const TCPConnInfo& conn) {
-    //    conn->newBytesIncomed.connect(printingFunction);
-    //    conn->startReadingData();
-    //    //connections.emplace_back(conn);
-    //});
+    std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> connections;
+    handler.newConnection.connect([&](const TCPConnInfo& conn) {
+        std::weak_ptr connWPtr = handler.getConnection(conn);
+        if (std::shared_ptr<TCPConnection> pTcpConn = connWPtr.lock()) {
+            //std::cout << "*spt == " << *spt << '\n';
+            connections.emplace(conn.sockfd, pTcpConn);
+            pTcpConn->newBytesIncomed.connect(printingFunction);
+        }
+    });
+
+    handler.connectionClosed.connect([&](const TCPConnInfo& conn) {
+        connections.erase(conn.sockfd);
+    });
+
 
     std::jthread serverProducerThread([&](std::stop_token st) {
         static int i = 0;
@@ -43,10 +50,10 @@ int main()
 
     //----------------------------- Client Code ------------------ ---------------------------
     TCPConnInfo client = handler.openConnection("127.0.0.1", 12301);
-    //if (!client) {
-    //    std::cerr << "socket wasn't open" << std::endl;
-    //    return -1;
-    //}
+    if (client == TCPConnInfo{}) {
+        std::cerr << "socket wasn't open" << std::endl;
+        return -1;
+    }
 
     //std::jthread clientProducerThread([&](std::stop_token st) {
     //    static int i = 0;
@@ -63,8 +70,9 @@ int main()
     if (std::cin.get() == 'n') {
         server.broadcast(std::format("Closing TCP Server! Goodbye!"));
 
-        serverProducerThread.request_stop();
+        //serverProducerThread.request_stop();
         //clientProducerThread.request_stop();
+        connections.clear();
         handler.stop();
     }
 

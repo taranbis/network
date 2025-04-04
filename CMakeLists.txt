@@ -12,7 +12,7 @@ endif()
 project ("007_TCP_Handler")
 
 # Add source to this project's executable.
-add_executable (007_TCP_Handler tcp_test.cpp  tcp_connection.cpp tcp_connection_manager.cpp)
+add_executable (007_TCP_Handler tcp_main.cpp  tcp_connection.cpp tcp_connection_manager.cpp)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
     set_target_properties(007_TCP_Handler PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)

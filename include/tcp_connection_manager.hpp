@@ -4,7 +4,6 @@
 
 #include <vector>
 #include <condition_variable>
-#include <iostream>
 #include <mutex>
 
 #include <boost/signals2.hpp>
@@ -16,6 +15,7 @@ class TCPConnectionManager
 {
 public:
     boost::signals2::signal<void(TCPConnInfo)> newConnection;
+    boost::signals2::signal<void(TCPConnInfo)> connectionClosed;
 
 public:
     TCPConnectionManager();
@@ -33,6 +33,10 @@ public:
     bool write(TCPConnInfo connData, const rmg::ByteArray& msg);
     TCPConnInfo openListenSocket(const std::string& ipAddr, uint16_t port);
 
+    std::weak_ptr<TCPConnection> getConnection(const TCPConnInfo& connInfo)
+    {
+        return m_connections.at(connInfo.sockfd);
+    }
     //const std::vector<std::weak_ptr<TCPConnection>>& getConnections() const {
     //    return m_connections;
     //}
@@ -42,7 +46,7 @@ public:
     void closeConn(const TCPConnInfo& connData);
 
 private:
-    std::unordered_map<SOCKET, std::unique_ptr<TCPConnection>> m_connections;
+    std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> m_connections;
     bool m_finish{false};
     bool m_printReceivedData{true};
     std::unordered_map<SOCKET, std::jthread> m_readingThreads;

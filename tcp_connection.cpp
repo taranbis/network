@@ -1,17 +1,12 @@
 #include "tcp_connection.hpp"
 
-#include <string>
-#include <thread>
-#include <functional>
 #include <iostream>
 #include <format>
 
 #include <winsock2.h>
-#include <ws2tcpip.h>
 
 #include <boost/signals2.hpp>
 
-#include "tcp_util.hpp"
 #include "tcp_connection_manager.hpp"
 
 TCPConnection::TCPConnection(TCPConnectionManager& tcpMgr, TCPConnInfo data) : m_tcpMgr(tcpMgr), connData_(data) {

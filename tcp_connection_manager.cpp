@@ -3,9 +3,7 @@
 #include <string>
 #include <thread>
 #include <cstring>
-#include <functional>
 #include <iostream>
-#include <atomic>
 #include <memory>
 #include <format>
 #include <unordered_map>
@@ -45,6 +43,8 @@ TCPConnectionManager::~TCPConnectionManager()
     //    if (std::shared_ptr<TCPConnection> connSpt = conn.lock()) connSpt->stop();
     //}
     //stop();
+    newConnection.disconnect_all_slots();
+    connectionClosed.disconnect_all_slots();
     WSACleanup();
 }
 
@@ -152,7 +152,7 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
     }
 
     const TCPConnInfo connInfo{.sockfd = sockfd, .peerIP = destAddress, .peerPort = destPort};
-    std::unique_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
+    std::shared_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
     conn->startReadingData();
     m_connections.emplace(sockfd, std::move(conn));
 
@@ -165,6 +165,7 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
 void TCPConnectionManager::closeConn(const TCPConnInfo& connInfo) {
     //std::clog << "TCPConnectionManager::closeConn for connInfo.sockfd " << connInfo.sockfd << std::endl;
     m_connections.erase(connInfo.sockfd);
+    connectionClosed(connInfo);
     m_threadFinished.first = true;
     m_threadFinished.second = connInfo.sockfd;
     m_cv.notify_all();
@@ -172,7 +173,7 @@ void TCPConnectionManager::closeConn(const TCPConnInfo& connInfo) {
 
 void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
 {
-    //! had enormous bug because i detached thread!! Always jthread!!
+    //! had enormous bug because I detached thread!! Always jthread!!
     if (m_readingThreads[connInfo.sockfd].joinable()) return;
     m_readingThreads[connInfo.sockfd] = std::jthread([this, connInfo = connInfo](std::stop_token token) {
         readDataFromSocket(connInfo, token);
@@ -247,7 +248,7 @@ TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& ipAddr, ui
     }
 
     const TCPConnInfo connInfo{.sockfd = listenSocket, .peerIP = ipAddr, .peerPort = port};
-    std::unique_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
+    std::shared_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
     m_checkForConnectionsThread = std::thread(&TCPConnectionManager::checkForConnections, this, connInfo);
     //th.detach(); - no longer needed
     std::clog << std::format("New Listening Socket - socket fd: {}; on IP: {}, on Port: {}\n", listenSocket,
@@ -315,7 +316,7 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
             //! should not send anything on the socket. e.g. failure for HTTP expects and HTTP message; 
             // this is the job of the client; 
 
-            std::unique_ptr<TCPConnection> newConn{new TCPConnection(*this, connInfo)};
+            std::shared_ptr<TCPConnection> newConn{new TCPConnection(*this, connInfo)};
             newConn->connData_.sockfd = newSockFd;
             newConn->startReadingData();
 
@@ -326,7 +327,6 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
     }
 }
 
-// read data from socket and to socket should be here not in TCPConnectionManager
 void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_token token)
 {
     std::unique_ptr<char> buffer(new char[1024]);
