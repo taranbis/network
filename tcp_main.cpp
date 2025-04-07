@@ -19,8 +19,10 @@
 int main()
 {
     TCPConnectionManager handler;
-    TCPServer server(handler);
-    server.start("127.0.0.1", 12301);
+    TCPServer server1(handler);
+    server1.start("127.0.0.1", 12301);
+    TCPServer server2(handler);
+    server2.start("127.0.0.1", 12301);
 
     std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> connections;
     handler.newConnection.connect([&](const TCPConnInfo& conn) {
@@ -36,11 +38,19 @@ int main()
         connections.erase(conn.sockfd);
     });
 
-    std::jthread serverProducerThread([&](std::stop_token st) {
+    std::jthread server1ProducerThread([&](std::stop_token st) {
         static int i = 0;
         while (!st.stop_requested()) {
-            std::string msg = "Message from Server no.: " + std::to_string(i++);
-            server.broadcast(msg);
+            std::string msg = "Message from Server1 no.: " + std::to_string(i++);
+            server1.broadcast(msg);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        }
+    });
+        std::jthread server2ProducerThread([&](std::stop_token st) {
+        static int i = 0;
+        while (!st.stop_requested()) {
+            std::string msg = "Message from Server2 no.: " + std::to_string(i++);
+            server2.broadcast(msg);
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         }
     });
@@ -62,12 +72,14 @@ int main()
     //});
     //----------------------------------------------------------------------------------------
 
-    server.broadcast(std::format("Message broadcasted from server no"));
+    server1.broadcast(std::format("Message broadcasted from server1 no"));
 
     while (std::cin.get() != 'q') {
     }
-    server.broadcast(std::format("Closing TCP Server! Goodbye!"));
-     serverProducerThread.request_stop();
+    server1.broadcast(std::format("Closing TCP Server1! Goodbye!"));
+    server2.broadcast(std::format("Closing TCP Server2! Goodbye!"));
+    server1ProducerThread.request_stop();
+    server2ProducerThread.request_stop();
     // clientProducerThread.request_stop();
     connections.clear();
     handler.stop();

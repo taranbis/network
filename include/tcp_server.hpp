@@ -5,16 +5,17 @@
 #include <set>
 
 #include "tcp_connection_manager.hpp"
-
 class TCPServer
 {
 public:
-    TCPServer(TCPConnectionManager& tcpHandler) : m_tcpConnMgr(tcpHandler) {}
+    TCPServer(TCPConnectionManager& tcpConnMgr) : m_tcpConnMgr(tcpConnMgr) {}
 
     void start(const std::string& sourceAddress, uint16_t sourcePort)
     {
         m_listenSockInfo = m_tcpConnMgr.openListenSocket(sourceAddress, sourcePort);
-        m_tcpConnMgr.newConnection.connect([&](TCPConnInfo conn) { 
+        m_tcpConnMgr.newConnectionOnListeningSocket.connect(
+                    m_listenSockInfo.sockfd,
+                    [&](TCPConnInfo conn) { 
                 m_connections.emplace(conn);
             });
         m_tcpConnMgr.connectionClosed.connect([&](TCPConnInfo conn) { 
@@ -23,15 +24,8 @@ public:
     }
 
     void broadcast(const std::string& message) {
-        std::vector<TCPConnInfo> tobeRemoved;
         for (const auto& conn : m_connections) { 
-            //should not be the case
-            //if (conn.sockfd == m_listenSockInfo.sockfd) continue;
-            int res = m_tcpConnMgr.write(conn, message);
-            if (res) { 
-                //tobeRemoved.emplace_back(conn);
-                //std::clog << "coulnd't write to sock: " << conn.sockfd << std::endl;
-            }
+            m_tcpConnMgr.write(conn, message);
         }
     }
 

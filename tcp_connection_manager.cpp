@@ -52,7 +52,7 @@ TCPConnectionManager::~TCPConnectionManager()
 void TCPConnectionManager::stop()
 {
     m_finish = true;
-    m_checkForConnectionsThread.join();
+    m_checkForConnectionsThreads.clear();
 }
 
 std::string TCPConnectionManager::dnsLookup(const std::string& host, uint16_t ipVersion)
@@ -250,7 +250,7 @@ TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& hostAddr, 
 
     const TCPConnInfo connInfo{.sockfd = listenSocket, .peerIP = hostAddr, .peerPort = port};
     std::shared_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
-    m_checkForConnectionsThread = std::thread(&TCPConnectionManager::checkForConnections, this, connInfo);
+    m_checkForConnectionsThreads[listenSocket] = std::jthread(&TCPConnectionManager::checkForConnections, this, connInfo);
     //th.detach(); - no longer needed
     std::clog << std::format("New Listening Socket - socket fd: {}; on IP: {}, on Port: {}\n", listenSocket,
                             connInfo.peerIP, connInfo.peerPort);
@@ -325,6 +325,7 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
             const TCPConnInfo connInfo = newConn->connInfo_;
             m_connections.emplace(newSockFd, std::move(newConn));
             newConnection(connInfo);
+            newConnectionOnListeningSocket.sendTo(listenSockFD,connInfo);
         }
     }
 }

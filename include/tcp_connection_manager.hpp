@@ -9,11 +9,36 @@
 
 #include "tcp_connection.hpp"
 
+class TargetedSignal
+{
+public:
+    void connect(const SOCKET socket, std::function<void(TCPConnInfo)> slotFunc)
+    {
+        slots.push_back({socket, slotFunc});
+    }
+
+    void sendTo(const SOCKET targetSocket, TCPConnInfo tcpConnInfo)
+    {
+        for (const auto& ts : slots) {
+            if (ts.socket == targetSocket) { ts.slot(tcpConnInfo); }
+        }
+    }
+
+private:
+    struct SocketSlot {
+        SOCKET socket;
+        std::function<void(TCPConnInfo)> slot;
+    };
+
+    std::vector<SocketSlot> slots;
+};
+
 class TCPConnectionManager
 {
 public:
     boost::signals2::signal<void(TCPConnInfo)> newConnection;
     boost::signals2::signal<void(TCPConnInfo)> connectionClosed;
+    TargetedSignal newConnectionOnListeningSocket;
 
 public:
     TCPConnectionManager();
@@ -43,8 +68,10 @@ public:
     void closeConn(const TCPConnInfo& connData);
 
 private:
-    std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> m_connections;
-    std::unordered_map<SOCKET, std::jthread> m_readingThreads;
+    void checkForConnections(const TCPConnInfo& connInfo);
+    void readDataFromSocket(TCPConnInfo connInfo, std::stop_token token) const;
+
+private:
     bool m_finish{false};
     bool m_printReceivedData{true};
     std::mutex m_mutex;
@@ -53,10 +80,9 @@ private:
     std::jthread m_readingThreadsCleaner;
     std::pair<bool, SOCKET> m_threadFinished = {false, -1};
 
-    std::thread m_checkForConnectionsThread;
-private:
-    void checkForConnections(const TCPConnInfo& connInfo);
-    void readDataFromSocket(TCPConnInfo connInfo, std::stop_token token) const;
+    std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> m_connections;
+    std::unordered_map<SOCKET, std::jthread> m_readingThreads;
+    std::unordered_map<SOCKET, std::jthread> m_checkForConnectionsThreads;
 };
 
 #endif //!_TCP_HANDLER_HEADER_HPP_
