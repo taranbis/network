@@ -9,34 +9,33 @@
 
 #include "tcp_connection_manager.hpp"
 
-TCPConnection::TCPConnection(TCPConnectionManager& tcpMgr, TCPConnInfo data) : m_tcpMgr(tcpMgr), connData_(data) {
+TCPConnection::TCPConnection(TCPConnectionManager& tcpMgr, TCPConnInfo data) : m_tcpMgr(tcpMgr), connInfo_(data) {
 }
 
 TCPConnection::~TCPConnection()
 {
-    std::clog << std::format("TCP connection closing for socket {}\n", connData_.sockfd);
+    std::clog << std::format("TCP connection closing for socket {}\n", connInfo_.sockfd);
     stop();
 };
 
 void TCPConnection::stop()
 {
-    m_readingThread.request_stop();
-    this->newBytesIncomed.disconnect_all_slots();
-    closesocket(connData_.sockfd);
+    this->newDataArrived.disconnect_all_slots();
+    closesocket(connInfo_.sockfd);
 }
 
-bool TCPConnection::write(const rmg::ByteArray& msg)
+bool TCPConnection::write(const std::string& msg)
 {
     // send returns the total number of bytes sent. Otherwise, a value of SOCKET_ERROR is returned
-    return m_tcpMgr.write(connData_, msg);
+    return m_tcpMgr.write(connInfo_, msg);
 }
 
 void TCPConnection::startReadingData()
 {
-    m_tcpMgr.startReadingData(connData_);
+    m_tcpMgr.startReadingData(connInfo_);
 }
 
-TCPConnInfo& TCPConnection::connData()
+TCPConnInfo& TCPConnection::connInfo()
 {
-    return connData_;
+    return connInfo_;
 }

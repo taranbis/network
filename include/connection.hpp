@@ -4,21 +4,19 @@
 
 #include <boost/signals2.hpp>
 
-#include "bytearray.hpp"
-
 class Connection
 {
 public:
     virtual ~Connection()
     {
-        this->newBytesIncomed.disconnect_all_slots();
+        this->newDataArrived.disconnect_all_slots();
     };
 
     virtual void stop() = 0;
-    virtual bool write(const rmg::ByteArray& msg) = 0;
+    virtual bool write(const std::string& msg) = 0;
     virtual void startReadingData() = 0;
 
-    boost::signals2::signal<void(std::vector<char>)> newBytesIncomed;
+    boost::signals2::signal<void(std::vector<char>)> newDataArrived;
 };
 
 #endif //!_CONNECTION_HEADER_HPP_

@@ -31,19 +31,17 @@ public:
 
     virtual ~TCPConnection();
     virtual void stop() override;
-    virtual bool write(const rmg::ByteArray& msg) override;
+    virtual bool write(const std::string& msg) override;
     virtual void startReadingData() override;
 
-    TCPConnInfo& connData();
+    TCPConnInfo& connInfo();
 
 protected:
-    TCPConnInfo connData_{};
+    TCPConnInfo connInfo_{};
 
 private:
     TCPConnectionManager& m_tcpMgr;
     friend class TCPConnectionManager;
-    std::jthread m_readingThread{};
-    std::weak_ptr<TCPConnection> m_weakSelf;
 };
 
 #endif //!_TCP_CONNECTION_HEADER_HPP_

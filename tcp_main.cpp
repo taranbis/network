@@ -1,14 +1,11 @@
-﻿#include "tcp_server.hpp"
-
-#include <iostream>
+﻿#include <iostream>
 #include <format>
 #include <thread>
 
+#include "tcp_server.hpp"
 /**
- * Since I am starting a server one can connect to write messages using
- * telnet localhost 12301
- * or
- * nc localhost 12301
+ * Connect to server to write messages using
+ * telnet localhost 12301 or nc localhost 12301
  */
 
  void printingFunction(std::vector<char> buffer) {
@@ -31,14 +28,13 @@ int main()
         if (std::shared_ptr<TCPConnection> pTcpConn = connWPtr.lock()) {
             //std::cout << "*spt == " << *spt << '\n';
             connections.emplace(conn.sockfd, pTcpConn);
-            pTcpConn->newBytesIncomed.connect(printingFunction);
+            pTcpConn->newDataArrived.connect(printingFunction);
         }
     });
 
     handler.connectionClosed.connect([&](const TCPConnInfo& conn) {
         connections.erase(conn.sockfd);
     });
-
 
     std::jthread serverProducerThread([&](std::stop_token st) {
         static int i = 0;
@@ -49,7 +45,7 @@ int main()
         }
     });
 
-    //----------------------------- Client Code ------------------ ---------------------------
+    //----------------------------- Client Code ---------------------------------------------
     TCPConnInfo client = handler.openConnection("127.0.0.1", 12301);
     if (client == TCPConnInfo{}) {
         std::cerr << "socket wasn't open" << std::endl;
@@ -68,14 +64,13 @@ int main()
 
     server.broadcast(std::format("Message broadcasted from server no"));
 
-    if (std::cin.get() == 'n') {
-        server.broadcast(std::format("Closing TCP Server! Goodbye!"));
-
-        //serverProducerThread.request_stop();
-        //clientProducerThread.request_stop();
-        connections.clear();
-        handler.stop();
+    while (std::cin.get() != 'q') {
     }
+    server.broadcast(std::format("Closing TCP Server! Goodbye!"));
+     serverProducerThread.request_stop();
+    // clientProducerThread.request_stop();
+    connections.clear();
+    handler.stop();
 
     return 0;
 }

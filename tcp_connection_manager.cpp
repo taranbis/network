@@ -11,6 +11,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include "tcp_util.hpp"
+
 TCPConnectionManager::TCPConnectionManager() 
 {
     WSADATA wsaData;
@@ -33,7 +35,6 @@ TCPConnectionManager::TCPConnectionManager()
             m_threadFinished = {false, -1};
         }
     });
-    //readingThreadsCleaner.detach();
 }
 
 TCPConnectionManager::~TCPConnectionManager()
@@ -58,8 +59,7 @@ std::string TCPConnectionManager::dnsLookup(const std::string& host, uint16_t ip
 {
     char ipAddress[INET6_ADDRSTRLEN]; // choose directly the maximum length which is for ipv6;
 
-    struct addrinfo hints {
-    };
+    struct addrinfo hints{};
     memset(&hints, 0, sizeof hints);
     hints.ai_family = (ipVersion == 6 ? AF_INET6 : AF_INET); // if it's 6 we choose IPv6, else we go with IPv4
     hints.ai_socktype = SOCK_STREAM;
@@ -71,7 +71,7 @@ std::string TCPConnectionManager::dnsLookup(const std::string& host, uint16_t ip
         return {};
     }
 
-    // for (auto p = res; p != NULL; p = p->ai_next); this is only one. we looked for either IPv4 or 6. if we
+    // for (auto p = res; p != NULL; p = p->ai_next); this is only one. we looked for either IPv4 or IPv6. if we
     // looked for both it would have been a linked list
     void* addr;
     if (res->ai_family == AF_INET) {
@@ -123,7 +123,6 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
     }
 
     if (!sourceAddress.empty()) {
-
         struct sockaddr addr;
         err = makeSockAddr(sourceAddress, sourcePort, addr);
         if (err) {
@@ -182,12 +181,12 @@ void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
     });
 }
 
-bool TCPConnectionManager::write(TCPConnInfo connData, const rmg::ByteArray& msg)
+bool TCPConnectionManager::write(TCPConnInfo connData, const std::string& msg)
 {
     if (!m_connections.contains(connData.sockfd)) return false;
 
     // send returns the total number of bytes sent. Otherwise, a value of SOCKET_ERROR is returned
-    const int res = send(connData.sockfd, msg.constData(), (int)msg.size(), 0);
+    const int res = send(connData.sockfd, msg.data(), (int)msg.size(), 0);
     if (res == SOCKET_ERROR) {
         std::cerr << "send failed; msg: " << msg << ", error: " << WSAGetLastError() << "\n";
         printErrorMessage();
@@ -271,6 +270,7 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
         int activity = select(-1 /*ignored*/, &set, NULL, NULL, &timeout);
 
         if (activity == SOCKET_ERROR) { 
+            //TODO: maybe not return here. 
             std::cerr << "select error " << std::endl; 
             continue;
         }
@@ -319,17 +319,17 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
             // this is the job of the client; 
 
             std::shared_ptr<TCPConnection> newConn{new TCPConnection(*this, connInfo)};
-            newConn->connData_.sockfd = newSockFd;
+            newConn->connInfo_.sockfd = newSockFd;
             newConn->startReadingData();
 
-            const TCPConnInfo connInfo = newConn->connData_;
+            const TCPConnInfo connInfo = newConn->connInfo_;
             m_connections.emplace(newSockFd, std::move(newConn));
             newConnection(connInfo);
         }
     }
 }
 
-void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_token token)
+void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_token token) const
 {
     std::unique_ptr<char> buffer(new char[1024]);
     while (!token.stop_requested()) {
@@ -362,10 +362,10 @@ void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_to
                 std::cout << std::endl;
             }
 
-            if (auto conn = m_connections.find(connData.sockfd); conn != m_connections.end()) {
+            if (const auto connIt = m_connections.find(connData.sockfd); connIt != m_connections.end()) {
                 std::vector<char> bytes;
                 for (int i = 0; i < recvRes; ++i) bytes.emplace_back(*(buffer.get() + i));
-                m_connections.at(connData.sockfd)->newBytesIncomed(bytes);
+                m_connections.at(connData.sockfd)->newDataArrived(bytes);
             } else {
                 std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
                 //m_connections.erase(connData.sockfd);
@@ -379,5 +379,4 @@ void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_to
             return;
         }
     }
-    //return 0;
 }
