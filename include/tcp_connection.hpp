@@ -41,7 +41,6 @@ protected:
 
 private:
     TCPConnectionManager& m_tcpMgr;
-    friend class TCPConnectionManager;
 };
 
 #endif //!_TCP_CONNECTION_HEADER_HPP_

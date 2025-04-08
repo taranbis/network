@@ -319,10 +319,10 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
             // this is the job of the client; 
 
             std::shared_ptr<TCPConnection> newConn{new TCPConnection(*this, connInfo)};
-            newConn->connInfo_.sockfd = newSockFd;
+            newConn->connInfo().sockfd = newSockFd;
             newConn->startReadingData();
 
-            const TCPConnInfo connInfo = newConn->connInfo_;
+            const TCPConnInfo connInfo = newConn->connInfo();
             m_connections.emplace(newSockFd, std::move(newConn));
             newConnection(connInfo);
             newConnectionOnListeningSocket.sendTo(listenSockFD,connInfo);
