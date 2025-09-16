@@ -22,13 +22,12 @@ int main()
     TCPServer server1(handler);
     server1.start("127.0.0.1", 12301);
     TCPServer server2(handler);
-    server2.start("127.0.0.1", 12301);
+    server2.start("127.0.0.1", 12302);
 
     std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> connections;
     handler.newConnection.connect([&](const TCPConnInfo& conn) {
         std::weak_ptr connWPtr = handler.getConnection(conn);
         if (std::shared_ptr<TCPConnection> pTcpConn = connWPtr.lock()) {
-            //std::cout << "*spt == " << *spt << '\n';
             connections.emplace(conn.sockfd, pTcpConn);
             pTcpConn->newDataArrived.connect(printingFunction);
         }
@@ -46,7 +45,8 @@ int main()
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         }
     });
-        std::jthread server2ProducerThread([&](std::stop_token st) {
+
+    std::jthread server2ProducerThread([&](std::stop_token st) {
         static int i = 0;
         while (!st.stop_requested()) {
             std::string msg = "Message from Server2 no.: " + std::to_string(i++);
@@ -54,7 +54,7 @@ int main()
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         }
     });
-
+    
     //----------------------------- Client Code ---------------------------------------------
     TCPConnInfo client = handler.openConnection("127.0.0.1", 12301);
     if (client == TCPConnInfo{}) {
@@ -72,10 +72,8 @@ int main()
     //});
     //----------------------------------------------------------------------------------------
 
-    server1.broadcast(std::format("Message broadcasted from server1 no"));
 
-    while (std::cin.get() != 'q') {
-    }
+    while (std::cin.get() != 'q') {}
     server1.broadcast(std::format("Closing TCP Server1! Goodbye!"));
     server2.broadcast(std::format("Closing TCP Server2! Goodbye!"));
     server1ProducerThread.request_stop();

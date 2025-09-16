@@ -161,18 +161,8 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
     return connInfo;
 }
 
-void TCPConnectionManager::closeConn(const TCPConnInfo& connInfo) {
-    //std::clog << "TCPConnectionManager::closeConn for connInfo.sockfd " << connInfo.sockfd << std::endl;
-    m_connections.erase(connInfo.sockfd);
-    connectionClosed(connInfo);
-    m_threadFinished.first = true;
-    m_threadFinished.second = connInfo.sockfd;
-    m_cv.notify_all();
-}
-
 void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
 {
-    //! had enormous bug because I detached thread!! Always jthread!!
     if (m_readingThreads[connInfo.sockfd].joinable()) return;
     m_readingThreads[connInfo.sockfd] = std::jthread([this, connInfo = connInfo](std::stop_token token) {
         readDataFromSocket(connInfo, token);
@@ -181,18 +171,60 @@ void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
     });
 }
 
-bool TCPConnectionManager::write(TCPConnInfo connData, const std::string& msg)
+void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_token token) const
 {
-    if (!m_connections.contains(connData.sockfd)) return false;
+    std::unique_ptr<char> buffer(new char[1024]);
+    while (!token.stop_requested()) {
+        WSAPOLLFD fd{};
+        fd.fd = connData.sockfd;
+        fd.events = POLLIN; // Wait for incoming data
 
-    // send returns the total number of bytes sent. Otherwise, a value of SOCKET_ERROR is returned
-    const int res = send(connData.sockfd, msg.data(), (int)msg.size(), 0);
-    if (res == SOCKET_ERROR) {
-        std::cerr << "send failed; msg: " << msg << ", error: " << WSAGetLastError() << "\n";
-        printErrorMessage();
-        return false;
+        int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
+        if (wsaPollRes > 0) {
+            // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
+            // buf parameter will If the connection has been gracefully closed, the return value is zero.
+            // Otherwise, a value of SOCKET_ERROR is returned
+            const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
+            if (recvRes == SOCKET_ERROR) {
+                std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
+                return;
+            }
+
+            if (recvRes == 0) {
+                std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
+                return;
+            }
+
+            if (m_printReceivedData) {
+                std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
+                for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
+                std::cout << std::endl;
+            }
+
+            if (const auto connIt = m_connections.find(connData.sockfd); connIt != m_connections.end()) {
+                std::vector<char> bytes;
+                for (int i = 0; i < recvRes; ++i) bytes.emplace_back(*(buffer.get() + i));
+                m_connections.at(connData.sockfd)->newDataArrived(bytes);
+            } else {
+                std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
+                return;
+            }
+        } else if (wsaPollRes == 0) {
+            // Timeout: No data received
+        } else {
+            std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
+            return;
+        }
     }
-    return true;
+}
+
+void TCPConnectionManager::closeConn(const TCPConnInfo& connInfo) {
+    //std::clog << "TCPConnectionManager::closeConn for connInfo.sockfd " << connInfo.sockfd << std::endl;
+    m_connections.erase(connInfo.sockfd);
+    connectionClosed(connInfo);
+    m_threadFinished.first = true;
+    m_threadFinished.second = connInfo.sockfd;
+    m_cv.notify_all();
 }
 
 TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& hostAddr, uint16_t port)
@@ -262,15 +294,14 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
 {
     SOCKET listenSockFD = connInfo.sockfd;
     fd_set set{};
-
+    FD_ZERO(&set);              // reset memory 
+    FD_SET(listenSockFD, &set); // add the socket file descriptor to the set
+    timeval timeout = {2, 0};   // 2 seconds timeout
+    
     while (!m_finish) {
-        FD_ZERO(&set);        /* reset memory */
-        FD_SET(listenSockFD, &set); /* add the socket file descriptor to the set */
-        timeval timeout = {2, 0};   // 2 seconds timeout
-        int activity = select(-1 /*ignored*/, &set, NULL, NULL, &timeout);
+        const int activity = select(-1 /*ignored*/, &set, NULL, NULL, &timeout);
 
         if (activity == SOCKET_ERROR) { 
-            //TODO: maybe not return here. 
             std::cerr << "select error " << std::endl; 
             continue;
         }
@@ -279,29 +310,8 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
 
         // If something happened on the socket, then its an incoming connection
         if (FD_ISSET(listenSockFD, &set)) {
-            //char buffer[512];
-            //char x;
-            //int r = recv(listenSockFD, &x, 1, MSG_PEEK);
-
-            //if (r < 0) {
-            //    //std::cerr << "recv() failed with error: " << WSAGetLastError() << std::endl;
-            //    int err = WSAGetLastError();
-            //    printErrorMessage();
-            //    if (err == WSAECONNRESET || 
-            //            err == WSAECONNABORTED || 
-            //            err == WSAENOTCONN || 
-            //            err == WSAETIMEDOUT ||
-            //            err == WSAEWOULDBLOCK) { // Connection reset by peer
-            //        std::cout << "Client forcibly closed the connection.\n";
-            //        closeConn(connInfo);
-            //        return;
-            //    } else {
-            //        std::cerr << "recv() failed with error: " << err << std::endl;
-            //    }
-            //}
-
             struct sockaddr addr;
-            int err = makeSockAddr(connInfo.peerIP, connInfo.peerPort, addr);
+            const int err = makeSockAddr(connInfo.peerIP, connInfo.peerPort, addr);
             if (err) {
                 std::cerr << "couldn't create sockAddr" << std::endl;
                 continue;
@@ -315,7 +325,7 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
             }
             std::clog << std::format("New Connection - socket fd: {}; peerIp: {}, peerPort: {}", newSockFd,
                                      connInfo.peerIP, connInfo.peerPort) << std::endl;
-            //! should not send anything on the socket. e.g. failure for HTTP expects and HTTP message; 
+            //! used to send sth on to the client but SHOULD NOT send anything on the socket. e.g. failure for HTTP expects and HTTP message; 
             // this is the job of the client; 
 
             std::shared_ptr<TCPConnection> newConn{new TCPConnection(*this, connInfo)};
@@ -330,54 +340,17 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
     }
 }
 
-void TCPConnectionManager::readDataFromSocket(TCPConnInfo connData, std::stop_token token) const
+
+bool TCPConnectionManager::write(TCPConnInfo connData, const std::string& msg)
 {
-    std::unique_ptr<char> buffer(new char[1024]);
-    while (!token.stop_requested()) {
-        WSAPOLLFD fd{};
-        fd.fd = connData.sockfd;
-        fd.events = POLLIN; // Wait for incoming data
+    if (!m_connections.contains(connData.sockfd)) return false;
 
-        int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
-        if (wsaPollRes > 0) {
-            // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
-            // buf parameter will If the connection has been gracefully closed, the return value is zero.
-            // Otherwise, a value of SOCKET_ERROR is returned
-            const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
-            if (recvRes == SOCKET_ERROR) {
-                std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
-                //printErrorMessage();
-                //m_connections.erase(connData.sockfd);
-                return;
-            }
-
-            if (recvRes == 0) {
-                std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
-                //m_connections.erase(connData.sockfd);
-                return;
-            }
-
-            if (m_printReceivedData) {
-                std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
-                for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
-                std::cout << std::endl;
-            }
-
-            if (const auto connIt = m_connections.find(connData.sockfd); connIt != m_connections.end()) {
-                std::vector<char> bytes;
-                for (int i = 0; i < recvRes; ++i) bytes.emplace_back(*(buffer.get() + i));
-                m_connections.at(connData.sockfd)->newDataArrived(bytes);
-            } else {
-                std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
-                //m_connections.erase(connData.sockfd);
-                return;
-            }
-        } else if (wsaPollRes == 0) {
-            //std::cout << "Timeout: No data received.\n";
-        } else {
-            std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
-            //m_connections.erase(connData.sockfd);
-            return;
-        }
+    // send returns the total number of bytes sent. Otherwise, a value of SOCKET_ERROR is returned
+    const int res = send(connData.sockfd, msg.data(), (int)msg.size(), 0);
+    if (res == SOCKET_ERROR) {
+        std::cerr << "send failed; msg: " << msg << ", error: " << WSAGetLastError() << "\n";
+        printErrorMessage();
+        return false;
     }
+    return true;
 }

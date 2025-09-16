@@ -4,6 +4,6 @@
         "conan": {}
     },
     "include": [
-        "C:\\Users\\mihai\\rmg_coding_projects\\yt\\007_TCP_Handler\\build\\build\\generators\\CMakePresets.json"
+        "build/CMakePresets.json"
     ]
 }

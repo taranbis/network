@@ -45,10 +45,8 @@ public:
     ~TCPConnectionManager();
     void stop();
 
-    // helper. can be even static 
-    std::string dnsLookup(const std::string& host, uint16_t ipVersion = 0); 
+    static std::string dnsLookup(const std::string& host, uint16_t ipVersion = 0); 
 
-    //can be left outside, but the class calling this need to be aware that it has to close the connection
     TCPConnInfo openConnection(const std::string& destAddress, uint16_t destPort); 
     TCPConnInfo openConnection(const std::string& destAddress, uint16_t destPort,
                                                   const std::string& sourceAddress, uint16_t sourcePort);
@@ -60,9 +58,6 @@ public:
     {
         return m_connections.at(connInfo.sockfd);
     }
-    //const std::vector<std::weak_ptr<TCPConnection>>& getConnections() const {
-    //    return m_connections;
-    //}
 
     void startReadingData(const TCPConnInfo& connInfo);
     void closeConn(const TCPConnInfo& connData);
