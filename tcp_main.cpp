@@ -42,7 +42,7 @@ int main()
         while (!st.stop_requested()) {
             std::string msg = "Message from Server1 no.: " + std::to_string(i++);
             server1.broadcast(msg);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            std::this_thread::sleep_for(std::chrono::seconds(5));
         }
     });
 
@@ -51,7 +51,7 @@ int main()
         while (!st.stop_requested()) {
             std::string msg = "Message from Server2 no.: " + std::to_string(i++);
             server2.broadcast(msg);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            std::this_thread::sleep_for(std::chrono::seconds(5));
         }
     });
     

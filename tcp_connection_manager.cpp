@@ -294,11 +294,11 @@ void TCPConnectionManager::checkForConnections(const TCPConnInfo& connInfo)
 {
     SOCKET listenSockFD = connInfo.sockfd;
     fd_set set{};
-    FD_ZERO(&set);              // reset memory 
-    FD_SET(listenSockFD, &set); // add the socket file descriptor to the set
-    timeval timeout = {2, 0};   // 2 seconds timeout
     
     while (!m_finish) {
+        FD_ZERO(&set);              // reset memory 
+        FD_SET(listenSockFD, &set); // add the socket file descriptor to the set
+        timeval timeout = {2, 0};   // 2 seconds timeout
         const int activity = select(-1 /*ignored*/, &set, NULL, NULL, &timeout);
 
         if (activity == SOCKET_ERROR) { 
