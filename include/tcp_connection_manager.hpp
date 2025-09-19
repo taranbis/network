@@ -54,21 +54,25 @@ public:
     bool write(TCPConnInfo connData, const std::string& msg);
     TCPConnInfo openListenSocket(const std::string& ipAddr, uint16_t port);
 
-    std::weak_ptr<TCPConnection> getConnection(const TCPConnInfo& connInfo) const
-    {
-        return m_connections.at(connInfo.sockfd);
-    }
-
+    std::weak_ptr<TCPConnection> getConnection(const TCPConnInfo& connInfo) const;
     void startReadingData(const TCPConnInfo& connInfo);
-    void closeConn(const TCPConnInfo& connData);
+    void closeConn(const TCPConnInfo connData);
 
 private:
-    void checkForConnections(const TCPConnInfo& connInfo);
-    void readDataFromSocket(TCPConnInfo connInfo, std::stop_token token) const;
+    void checkForConnections(std::stop_token token, const TCPConnInfo& connInfo);
+    void readDataFromSocket(std::stop_token token, TCPConnInfo connInfo) const;
+
+    //functions only to be used for m_connections - thread-safe
+    void addConnection(SOCKET sockfd, std::shared_ptr<TCPConnection> conn);
+    void removeConnection(SOCKET sockfd);
+    bool hasConnection(SOCKET sockfd) const;
+    std::shared_ptr<TCPConnection> getConnectionDirect(SOCKET sockfd) const;
 
 private:
     bool m_finish{false};
     bool m_printReceivedData{true};
+
+    mutable std::recursive_mutex m_connectionsMutex;
     std::mutex m_mutex;
     std::condition_variable m_cv;
 
@@ -76,8 +80,8 @@ private:
     std::pair<bool, SOCKET> m_threadFinished = {false, -1};
 
     std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> m_connections;
-    std::unordered_map<SOCKET, std::jthread> m_readingThreads;
-    std::unordered_map<SOCKET, std::jthread> m_checkForConnectionsThreads;
+    std::unordered_map<SOCKET, std::jthread> m_connThreads;
+    //std::unordered_map<SOCKET, std::jthread> m_checkForConnectionsThreads;
 };
 
 #endif //!_TCP_HANDLER_HEADER_HPP_
