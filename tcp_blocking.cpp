@@ -71,7 +71,7 @@ int main()
         std::cerr << "couldn't create sockAddr" << std::endl;
         return -1;
     }
-
+    
     err = bind(serverSock, &addr, sizeof(addr));
     if (err) { // couldn't bind source address and port;
         printErrorMessage();
@@ -97,8 +97,8 @@ int main()
     std::promise<int> p;
     std::cout << "Starting reading from " << newSock << std::endl;
     std::jthread th([&](std::stop_token st) {
-        char buffer[1024] = {0};
         while (!st.stop_requested()) {
+            char buffer[1024] = {0};
             const int recvRes = recv(newSock, buffer, 1024, 0);
             const std::string messageFromClient= std::format("Message from client: {}", buffer);
             std::cout << messageFromClient << std::endl;
