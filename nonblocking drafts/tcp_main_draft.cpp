@@ -77,7 +77,7 @@ int main()
     }
 
     //client->stop();
-    handler.closeConn(clientInfo);
+    //handler.closeConn(clientInfo);
     //----------------------------------------------------------------------------------------
 
     while (std::cin.get() != 'q') {}
