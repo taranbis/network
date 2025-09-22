@@ -1,138 +1,116 @@
-#include <chrono>
-#include <format>
-#include <future>
 #include <iostream>
 #include <thread>
-#include <string>
+#include <chrono>
+#include <vector>
+#include <atomic>
+#include <future>
+#include <cassert>
+#include <format>
+#include <random>
+#include <set>
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "tcp_connection_manager.hpp"
+#include "tcp_server.hpp"
 
-#include <conio.h>
+int main() {
+    std::cout << "\n--- Testing data integrity under load ---" << std::endl;
 
-const std::string hostAddr = "127.0.0.1";
-const uint16_t hostPort = 12301;
+    TCPConnectionManager manager;
+    std::atomic<int> messages_sent{0};
+    std::atomic<int> messages_received{0};
+    std::atomic<int> correct_messages{0};
 
-inline int makeSockAddr(const std::string& ipAddr, uint16_t port, sockaddr& addr)
-{
-    memset(&addr, 0, sizeof(addr)); // Clear memory
-    if (ipAddr.find(".") == -1) {
-        sockaddr_in6* ipv6 = (sockaddr_in6*)&addr;
-        ipv6->sin6_family = AF_INET6;
-        if (inet_pton(AF_INET6, ipAddr.c_str(), &ipv6->sin6_addr) == 0) { return -1; }
-        ipv6->sin6_port = htons(port);
-        return 0;
-    }
-    sockaddr_in* ipv4 = (sockaddr_in*)&addr;
-    memset(&addr, 0, sizeof(addr));
-    ipv4->sin_family = AF_INET;
-    if (inet_pton(AF_INET, ipAddr.c_str(), &ipv4->sin_addr) == 0) { return -1; }
-    ipv4->sin_port = htons(port);
-    return 0;
-}
+    std::shared_ptr<TCPConnection> serverConn;
 
-inline void printErrorMessage()
-{
-    int errCode = WSAGetLastError();
-    char* msgBuffer = nullptr;
-    FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, NULL, errCode, 0, (LPSTR)&msgBuffer,
-                  0, NULL);
-    std::cerr << "Error " << errCode << ": " << (msgBuffer ? msgBuffer : "Unknown error") << std::endl;
-    LocalFree(msgBuffer);
-}
+    manager.newConnection.connect([&](const TCPConnInfo& conn) {
+        auto connPtr = manager.getConnection(conn).lock();
+        if (connPtr) {
+            serverConn = connPtr;
+            connPtr->newDataArrived.connect([&](const std::vector<char>& data) {
+                ++messages_received;
+                std::string received(data.begin(), data.end());
 
-int main()
-{
-    WSADATA wsaData;
-    int err = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (err) {
-        std::cerr << "WSAStartup failed: " << err << std::endl;
-        return -1;
-    }
-    std::cout << "Winsock initialized.\n";
-
-    const SOCKET serverSock = socket(hostAddr.find(".") == -1 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
-    if (serverSock == INVALID_SOCKET) {
-        std::cerr << "couldn't create socket" << std::endl;
-        return -1;
-    }
-
-    const int on = 1;
-    err = setsockopt(serverSock, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on));
-    if (err) {
-        std::cerr << "couldn't set option" << std::endl;
-        closesocket(serverSock);
-        return -1;
-    }
-
-    struct sockaddr addr;
-    err = makeSockAddr(hostAddr, hostPort, addr);
-    if (err) {
-        std::cerr << "couldn't create sockAddr" << std::endl;
-        return -1;
-    }
-
-    err = bind(serverSock, &addr, sizeof(addr));
-    if (err) { // couldn't bind source address and port;
-        printErrorMessage();
-        closesocket(serverSock);
-        return -1;
-    }
-
-    err = listen(serverSock, 10);
-    if (err) {
-        printErrorMessage();
-        closesocket(serverSock);
-        return -1;
-    }
-
-    std::cout << "Waiting for connection on " << serverSock << std::endl;
-    const int addrlen = sizeof(addr);
-    const SOCKET newSock = accept(serverSock, (struct sockaddr*)&addr, (socklen_t*)&addrlen);
-    if (newSock < 0) {
-        printErrorMessage();
-        return -1;
-    }
-
-    std::promise<int> p;
-    std::cout << "Starting reading from " << newSock << std::endl;
-    std::jthread th([&](std::stop_token st) {
-        char buffer[1024] = {0};
-        while (!st.stop_requested()) {
-            const int recvRes = recv(newSock, buffer, 1024, 0);
-            const std::string messageFromClient= std::format("Message from client: {}", buffer);
-            std::cout << messageFromClient << std::endl;
-            if (recvRes == SOCKET_ERROR) {
-                std::cerr << std::format("receive failed on socket {}; closing connection!\n", newSock);
-                p.set_value(1);
-                break;
-            }
-            if (recvRes == 0) {
-                std::clog << std::format("connection on socket {} was closed by peer\n", newSock);
-                p.set_value(2);
-                break;
-            }
-            const std::string messageToClient = std::format("TCP Server received message:{}", buffer);
-            const int sendRes = send(newSock, messageToClient.data(), messageToClient.size(), 0);
+                // Check if message follows expected pattern
+                if (received.find("Message_") == 0) { ++correct_messages; }
+            });
         }
     });
 
-    std::future<int> f = p.get_future();
-    using namespace std::chrono_literals;
-    while (f.wait_for(100ms) != std::future_status::ready) {
-        if (_kbhit()) {
-            char ch = _getch(); // Waits for keypress (non-blocking check)
-            if (ch == 'q' || ch == 'Q') {
-                std::cout << "Exiting...\n";
-                break;
-            }
-        }
+    // Create server
+    TCPConnInfo serverInfo = manager.openListenSocket("127.0.0.1", 12540);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Create client
+    TCPConnInfo clientInfo = manager.openConnection("127.0.0.1", 12540);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    // Send multiple messages rapidly
+    const int num_messages = 100;
+    for (int i = 0; i < num_messages; ++i) {
+        std::string message = std::format("Message_{:04d}_TestData", i);
+        bool sent = manager.write(clientInfo, message);
+        if (sent) { ++messages_sent; }
+
+        if (i % 10 == 0) { std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
+    }   
+
+    // Wait for all messages to be processed
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    if (messages_sent > 0) {
+        std::clog << "Should have sent some messages";
+    }
+    if (messages_received > 0) {
+        std::clog << "Should have received some messages";
     }
 
-    th.request_stop();
-    closesocket(newSock);
-    closesocket(serverSock);
-    WSACleanup();
+    std::cout << std::format("Data integrity test: {} sent, {} received, {} correct format", messages_sent.load(),
+                             messages_received.load(), correct_messages.load())
+              << std::endl;
 
-    return 0;
+    // Allow for some message loss in high-load scenarios, but most should get through
+    double success_rate = (double)correct_messages.load() / (double)messages_sent.load();
+    //UnitTestFramework::assert_true(success_rate > 0.8, "Should have >80% message success rate");
+
+    if (success_rate < 0.8) std::clog << "FAIL: Should NOT have <80% message success rate";
+    if (success_rate > 0.8) std::clog << "PASS: Received with >80% message success rate";
+
+    manager.stop();
 }
+
+//int main() {
+//    std::cout << "\n--- Testing IP version handling ---" << std::endl;
+//
+//    TCPConnectionManager manager;
+//
+//    // Test IPv4 addresses
+//    TCPConnInfo ipv4Server = manager.openListenSocket("127.0.0.1", 12530);
+//    //UnitTestFramework::assert_true(ipv4Server.sockfd != 0, "IPv4 server should be created");
+//
+//    if (ipv4Server.sockfd != 0) { std::clog << "IPv4 server should be created!\n"; }
+//
+//    // Test IPv6 addresses (if supported)
+//    TCPConnInfo ipv6Server = manager.openListenSocket("::1", 12531);
+//    if (ipv6Server.sockfd != 0) {
+//        //UnitTestFramework::assert_true(true, "IPv6 server created successfully");
+//        std::clog << " IPv6 server created successfully \n";
+//    } else {
+//        //UnitTestFramework::assert_true(true, ")");
+//                std::clog << " IPv6 server creation failed (IPv6 might not be supported \n";
+//
+//    }
+//
+//    // Test invalid IP addresses
+//    TCPConnInfo invalidServer1 = manager.openListenSocket("999.999.999.999", 12532);
+//    //UnitTestFramework::assert_true(invalidServer1.sockfd == 0, "Invalid IPv4 address should fail");
+//    if (invalidServer1.sockfd == 0) {
+//        std::clog << "Invalid IPv4 address should fail!\n";
+//    }
+//
+//    TCPConnInfo invalidServer2 = manager.openListenSocket("not.an.ip.address", 12533);
+//    //UnitTestFramework::assert_true(invalidServer2.sockfd == 0, "Invalid hostname should fail");
+//
+//        if (invalidServer1.sockfd == 0) { std::clog << "Invalid hostname should fail!\n"; }
+//
+//    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+//    manager.stop();
+//}
