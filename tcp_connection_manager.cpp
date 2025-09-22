@@ -45,10 +45,6 @@ TCPConnectionManager::TCPConnectionManager()
 
 TCPConnectionManager::~TCPConnectionManager()
 {
-    //! this could be DEAD long ago; this is why i use weak_ptr. to look for forgotten connections
-    //for (std::weak_ptr<TCPConnection> conn : m_connections) {
-    //    if (std::shared_ptr<TCPConnection> connSpt = conn.lock()) connSpt->stop();
-    //}
     stop();
     m_cv.notify_all();
     {
@@ -202,7 +198,7 @@ void TCPConnectionManager::readDataFromSocket(std::stop_token st, TCPConnInfo co
             fd.fd = connData.sockfd;
             fd.events = POLLIN; // Wait for incoming data
 
-            int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
+            const int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
             if (wsaPollRes > 0) {
                 // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
                 // buf parameter will If the connection has been gracefully closed, the return value is zero.
@@ -232,9 +228,8 @@ void TCPConnectionManager::readDataFromSocket(std::stop_token st, TCPConnInfo co
 
                 std::vector<char> bytes(buffer.get(), buffer.get() + recvRes);
                 conn->newDataArrived(bytes);
-                conn->newDataArrived(bytes);
             } else if (wsaPollRes == 0) {
-                // Timeout: No data received
+                // Timeout: This is normal and not an error - just means "nothing happened in 2 seconds"
             } else {
                 std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
                 return;
