@@ -32,9 +32,11 @@ TCPConnectionManager::TCPConnectionManager()
 
             //std::clog << "removing thread for connection " << m_threadFinished.second << std::endl;
 
-
-            m_connThreads[m_threadFinished.second].request_stop();
-            m_connThreads.erase(m_threadFinished.second);
+            {
+                std::lock_guard<std::mutex> connThreadsLock(m_connThreadsMutex);
+                m_connThreads[m_threadFinished.second].request_stop();
+                m_connThreads.erase(m_threadFinished.second);
+            }
 
             m_threadFinished = {false, -1};
         }
@@ -49,7 +51,10 @@ TCPConnectionManager::~TCPConnectionManager()
     //}
     stop();
     m_cv.notify_all();
-    for (auto& connThread : m_connThreads) connThread.second.join();
+    {
+        std::lock_guard<std::mutex> lock(m_connThreadsMutex);
+        for (auto& connThread : m_connThreads) connThread.second.join();
+    }
     newConnection.disconnect_all_slots();
     connectionClosed.disconnect_all_slots();
     //m_connThreads.clear();
@@ -60,7 +65,10 @@ void TCPConnectionManager::stop()
 {
     m_finish = true; //this stops also the reading threads to clean up their connections
 
-    for (auto& connThread : m_connThreads) connThread.second.request_stop();
+    {
+        std::lock_guard<std::mutex> lock(m_connThreadsMutex);
+        for (auto& connThread : m_connThreads) connThread.second.request_stop();
+    }
     std::unique_lock lock(m_connectionsMutex);
     const auto copyConns = m_connections;
     lock.unlock();
@@ -177,6 +185,7 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
 
 void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
 {
+    std::lock_guard<std::mutex> lock(m_connThreadsMutex);
     if (m_connThreads[connInfo.sockfd].joinable()) return;
     m_connThreads[connInfo.sockfd] = std::jthread([this, connInfo = connInfo](std::stop_token st) {
         readDataFromSocket(st, connInfo);
@@ -223,11 +232,6 @@ void TCPConnectionManager::readDataFromSocket(std::stop_token st, TCPConnInfo co
 
                 std::vector<char> bytes(buffer.get(), buffer.get() + recvRes);
                 conn->newDataArrived(bytes);
-
-                //std::vector<char> bytes;
-                //bytes.reserve(recvRes);
-                //bytes.data() = buffer.get();
-                //for (int i = 0; i < recvRes; ++i) bytes.emplace_back(*(buffer.get() + i));
                 conn->newDataArrived(bytes);
             } else if (wsaPollRes == 0) {
                 // Timeout: No data received
@@ -305,10 +309,13 @@ TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& hostAddr, 
 
     const TCPConnInfo connInfo{.sockfd = listenSocket, .peerIP = hostAddr, .peerPort = port};
     std::shared_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
-    m_connThreads[listenSocket] =
-                std::jthread([this, connInfo = connInfo](std::stop_token st) { 
-         this->checkForConnections(st, connInfo); 
-     });
+    {
+        std::lock_guard<std::mutex> lock(m_connThreadsMutex);
+        m_connThreads[listenSocket] =
+                    std::jthread([this, connInfo = connInfo](std::stop_token st) { 
+             this->checkForConnections(st, connInfo); 
+         });
+    }
 
     //th.detach(); - no longer needed
     std::clog << std::format("New Listening Socket - socket fd: {}; on IP: {}, on Port: {}\n", listenSocket,
