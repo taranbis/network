@@ -23,16 +23,20 @@ TCPConnectionManager::TCPConnectionManager()
     }
     std::clog << "Winsock initialized.\n";
 
-    m_readingThreadsCleaner = std::jthread([this]() {
+    m_connThreadsCleaner = std::jthread([this]() {
         while (!m_finish) {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_cv.wait(lock, [this] {
                 return m_threadFinished.first || m_finish;
             });
 
+            //std::clog << "removing thread for connection " << m_threadFinished.second << std::endl;
 
-            m_connThreads[m_threadFinished.second].request_stop();
-            m_connThreads.erase(m_threadFinished.second);
+            {
+                std::lock_guard<std::mutex> connThreadsLock(m_connThreadsMutex);
+                m_connThreads[m_threadFinished.second].request_stop();
+                m_connThreads.erase(m_threadFinished.second);
+            }
 
             m_threadFinished = {false, -1};
         }
@@ -47,7 +51,10 @@ TCPConnectionManager::~TCPConnectionManager()
     //}
     stop();
     m_cv.notify_all();
-    for (auto& connThread : m_connThreads) connThread.second.join();
+    {
+        std::lock_guard<std::mutex> lock(m_connThreadsMutex);
+        for (auto& connThread : m_connThreads) connThread.second.join();
+    }
     newConnection.disconnect_all_slots();
     connectionClosed.disconnect_all_slots();
     //m_connThreads.clear();
@@ -58,9 +65,13 @@ void TCPConnectionManager::stop()
 {
     m_finish = true; //this stops also the reading threads to clean up their connections
 
-    for (auto& connThread : m_connThreads) connThread.second.request_stop();
-    std::lock_guard lock(m_connectionsMutex);
-    auto copyConns = m_connections;
+    {
+        std::lock_guard<std::mutex> lock(m_connThreadsMutex);
+        for (auto& connThread : m_connThreads) connThread.second.request_stop();
+    }
+    std::unique_lock lock(m_connectionsMutex);
+    const auto copyConns = m_connections;
+    lock.unlock();
     for (auto& conn : copyConns) { 
         closeConn(conn.second->connInfo());
     }
@@ -174,6 +185,7 @@ TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress,
 
 void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
 {
+    std::lock_guard<std::mutex> lock(m_connThreadsMutex);
     if (m_connThreads[connInfo.sockfd].joinable()) return;
     m_connThreads[connInfo.sockfd] = std::jthread([this, connInfo = connInfo](std::stop_token st) {
         readDataFromSocket(st, connInfo);
@@ -184,51 +196,51 @@ void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
 
 void TCPConnectionManager::readDataFromSocket(std::stop_token st, TCPConnInfo connData) const
 {
-    std::unique_ptr<char> buffer(new char[1024]);
-    while (!m_finish && !st.stop_requested()) {
-        WSAPOLLFD fd{};
-        fd.fd = connData.sockfd;
-        fd.events = POLLIN; // Wait for incoming data
+        std::unique_ptr<char> buffer(new char[1024]);
+        while (!m_finish && !st.stop_requested()) {
+            WSAPOLLFD fd{};
+            fd.fd = connData.sockfd;
+            fd.events = POLLIN; // Wait for incoming data
 
-        int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
-        if (wsaPollRes > 0) {
-            // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
-            // buf parameter will If the connection has been gracefully closed, the return value is zero.
-            // Otherwise, a value of SOCKET_ERROR is returned
-            const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
-            if (recvRes == SOCKET_ERROR) {
-                std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
+            int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
+            if (wsaPollRes > 0) {
+                // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
+                // buf parameter will If the connection has been gracefully closed, the return value is zero.
+                // Otherwise, a value of SOCKET_ERROR is returned
+                const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
+                if (recvRes == SOCKET_ERROR) {
+                    std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
+                    return;
+                }
+
+                if (recvRes == 0) {
+                    std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
+                    return;
+                }
+
+                if (m_printReceivedData) {
+                    std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
+                    for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
+                    std::cout << std::endl;
+                }
+
+                const auto conn = getConnectionDirect(connData.sockfd);
+                if(!conn) {
+                    std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
+                    return;
+                }
+
+                std::vector<char> bytes(buffer.get(), buffer.get() + recvRes);
+                conn->newDataArrived(bytes);
+                conn->newDataArrived(bytes);
+            } else if (wsaPollRes == 0) {
+                // Timeout: No data received
+            } else {
+                std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
                 return;
             }
-
-            if (recvRes == 0) {
-                std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
-                return;
-            }
-
-            if (m_printReceivedData) {
-                std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
-                for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
-                std::cout << std::endl;
-            }
-
-            auto conn = getConnectionDirect(connData.sockfd);
-            if(!conn) {
-                std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
-                return;
-            }
-
-            std::vector<char> bytes;
-            for (int i = 0; i < recvRes; ++i) bytes.emplace_back(*(buffer.get() + i));
-            conn->newDataArrived(bytes);
-        } else if (wsaPollRes == 0) {
-            // Timeout: No data received
-        } else {
-            std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
-            return;
         }
     }
-}
 
 void TCPConnectionManager::closeConn(const TCPConnInfo connInfo) {
     //std::clog << "TCPConnectionManager::closeConn for connInfo.sockfd " << connInfo.sockfd << std::endl;
@@ -297,10 +309,13 @@ TCPConnInfo TCPConnectionManager::openListenSocket(const std::string& hostAddr, 
 
     const TCPConnInfo connInfo{.sockfd = listenSocket, .peerIP = hostAddr, .peerPort = port};
     std::shared_ptr<TCPConnection> conn{new TCPConnection(*this, connInfo)};
-    m_connThreads[listenSocket] =
-                std::jthread([this, connInfo = connInfo](std::stop_token st) { 
-         this->checkForConnections(st, connInfo); 
-     });
+    {
+        std::lock_guard<std::mutex> lock(m_connThreadsMutex);
+        m_connThreads[listenSocket] =
+                    std::jthread([this, connInfo = connInfo](std::stop_token st) { 
+             this->checkForConnections(st, connInfo); 
+         });
+    }
 
     //th.detach(); - no longer needed
     std::clog << std::format("New Listening Socket - socket fd: {}; on IP: {}, on Port: {}\n", listenSocket,
@@ -338,7 +353,7 @@ void TCPConnectionManager::checkForConnections(std::stop_token st, const TCPConn
 
             int size = sizeof(addr);
             SOCKET newSockFd = accept(listenSockFD, &addr, &size);
-            if (newSockFd < 0) {
+            if (newSockFd == INVALID_SOCKET) {
                 std::cerr << "accept error" << std::endl;
                 continue;
             }

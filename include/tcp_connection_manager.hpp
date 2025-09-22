@@ -70,13 +70,14 @@ private:
 
 private:
     bool m_finish{false};
-    bool m_printReceivedData{true};
+    bool m_printReceivedData{false};
 
     mutable std::recursive_mutex m_connectionsMutex;
+    mutable std::mutex m_connThreadsMutex;
+
+    std::jthread m_connThreadsCleaner;
     std::mutex m_mutex;
     std::condition_variable m_cv;
-
-    std::jthread m_readingThreadsCleaner;
     std::pair<bool, SOCKET> m_threadFinished = {false, -1};
 
     std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> m_connections;
