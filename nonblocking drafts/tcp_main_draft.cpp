@@ -21,8 +21,8 @@ int main()
     TCPConnectionManager handler;
     TCPServer server1(handler);
     server1.start("127.0.0.1", 12301);
-    //TCPServer server2(handler);
-    //server2.start("127.0.0.1", 12302);
+    TCPServer server2(handler);
+    server2.start("127.0.0.1", 12302);
 
     std::unordered_map<SOCKET, std::shared_ptr<TCPConnection>> connections;
     handler.newConnection.connect([&](const TCPConnInfo& conn) {
@@ -41,19 +41,19 @@ int main()
         static int i = 0;
         while (!st.stop_requested()) {
             const std::string msg = "Message from Server1 no.: " + std::to_string(i++);
-            //server1.broadcast(msg);
+            server1.broadcast(msg);
             std::this_thread::sleep_for(std::chrono::seconds(5));
         }
     });
 
-    //std::jthread server2ProducerThread([&](std::stop_token st) {
-    //    static int i = 0;
-    //    while (!st.stop_requested()) {
-    //        const std::string msg = "Message from Server2 no.: " + std::to_string(i++);
-    //        //server2.broadcast(msg);
-    //        std::this_thread::sleep_for(std::chrono::seconds(5));
-    //    }
-    //});
+    std::jthread server2ProducerThread([&](std::stop_token st) {
+       static int i = 0;
+       while (!st.stop_requested()) {
+           const std::string msg = "Message from Server2 no.: " + std::to_string(i++);
+           server2.broadcast(msg);
+           std::this_thread::sleep_for(std::chrono::seconds(5));
+       }
+    });
     
     //----------------------------- Client Code ---------------------------------------------
     TCPConnInfo clientInfo = handler.openConnection("127.0.0.1", 12301);
@@ -64,10 +64,11 @@ int main()
 
     std::shared_ptr<TCPConnection> client;
     std::weak_ptr connWPtr = handler.getConnection(clientInfo);
+    std::jthread clientProducerThread;
     if ( client = connWPtr.lock()) {
-        std::jthread clientProducerThread([&](std::stop_token st) {
+        clientProducerThread = std::jthread([&](std::stop_token st) {
             static int i = 0;
-            while (i < 3) {
+            while (i < 5) {
                 std::string msg = "msg no. " + std::to_string(i++);
                 client->write(msg);
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -81,10 +82,10 @@ int main()
 
     while (std::cin.get() != 'q') {}
     server1.broadcast(std::format("Closing TCP Server1! Goodbye!"));
-    //server2.broadcast(std::format("Closing TCP Server2! Goodbye!"));
+    server2.broadcast(std::format("Closing TCP Server2! Goodbye!"));
     server1ProducerThread.request_stop();
-    //server2ProducerThread.request_stop();
-    // clientProducerThread.request_stop();
+    server2ProducerThread.request_stop();
+    clientProducerThread.request_stop();
     connections.clear();
     handler.stop();
 
