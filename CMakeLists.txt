@@ -14,10 +14,16 @@ project ("007_TCP_Handler")
 # Add source to this project's executable.
 add_executable (007_TCP_Handler tcp_main.cpp  tcp_connection.cpp tcp_connection_manager.cpp)
 add_executable (007_Simple_TCP_Server tcp_blocking.cpp)
+add_executable (TCP_Unit_Tests unit_tests_tcp.cpp tcp_connection.cpp tcp_connection_manager.cpp)
+add_executable (TCP_Performance_Tests performance_tests_tcp.cpp tcp_connection.cpp tcp_connection_manager.cpp)
+add_executable (TCP_Non_Blocking_Draft tcp_draft.cpp tcp_connection.cpp tcp_connection_manager.cpp)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
     set_target_properties(007_TCP_Handler PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
     set_target_properties(007_Simple_TCP_Server PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    set_target_properties(TCP_Non_Blocking_Draft PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    set_target_properties(TCP_Unit_Tests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    set_target_properties(TCP_Performance_Tests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 endif()
 
 # TODO: Add tests and install targets if needed.
@@ -37,3 +43,25 @@ target_link_libraries(007_Simple_TCP_Server ws2_32)
 
 target_include_directories(007_Simple_TCP_Server PUBLIC ${Boost_INCLUDE_DIRS})
 target_include_directories(007_Simple_TCP_Server PUBLIC include)
+
+target_link_libraries(TCP_Unit_Tests Threads::Threads)
+target_link_libraries(TCP_Unit_Tests ${Boost_LIBRARIES})
+target_link_libraries(TCP_Unit_Tests ws2_32)
+
+target_include_directories(TCP_Unit_Tests PUBLIC ${Boost_INCLUDE_DIRS})
+target_include_directories(TCP_Unit_Tests PUBLIC include)
+
+target_link_libraries(TCP_Performance_Tests Threads::Threads)
+target_link_libraries(TCP_Performance_Tests ${Boost_LIBRARIES})
+target_link_libraries(TCP_Performance_Tests ws2_32)
+
+target_include_directories(TCP_Performance_Tests PUBLIC ${Boost_INCLUDE_DIRS})
+target_include_directories(TCP_Performance_Tests PUBLIC include)
+
+
+target_link_libraries(TCP_Non_Blocking_Draft Threads::Threads)
+target_link_libraries(TCP_Non_Blocking_Draft ${Boost_LIBRARIES})
+target_link_libraries(TCP_Non_Blocking_Draft ws2_32)
+
+target_include_directories(TCP_Non_Blocking_Draft PUBLIC ${Boost_INCLUDE_DIRS})
+target_include_directories(TCP_Non_Blocking_Draft PUBLIC include)
