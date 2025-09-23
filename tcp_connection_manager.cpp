@@ -73,40 +73,6 @@ void TCPConnectionManager::stop()
     }
 }
 
-std::string TCPConnectionManager::dnsLookup(const std::string& host, uint16_t ipVersion)
-{
-    char ipAddress[INET6_ADDRSTRLEN]; // choose directly the maximum length which is for ipv6;
-
-    struct addrinfo hints{};
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = (ipVersion == 6 ? AF_INET6 : AF_INET); // if it's 6 we choose IPv6, else we go with IPv4
-    hints.ai_socktype = SOCK_STREAM;
-
-    struct addrinfo* res;
-    int status = 0;
-    if ((status = getaddrinfo(host.c_str(), NULL, &hints, &res)) != 0) {
-        std::cerr << "getaddrinfo failed: " << gai_strerror(status) << std::endl;
-        return {};
-    }
-
-    // for (auto p = res; p != NULL; p = p->ai_next); this is only one. we looked for either IPv4 or IPv6. if we
-    // looked for both it would have been a linked list
-    void* addr;
-    if (res->ai_family == AF_INET) {
-        struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
-        addr = &(ipv4->sin_addr);
-        inet_ntop(res->ai_family, addr, ipAddress, sizeof ipAddress);
-    } else {
-        struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)res->ai_addr;
-        addr = &(ipv6->sin6_addr);
-        inet_ntop(res->ai_family, addr, ipAddress, sizeof ipAddress);
-    }
-
-    freeaddrinfo(res); // free the linked list
-
-    return ipAddress;
-}
-
 TCPConnInfo TCPConnectionManager::openConnection(const std::string& destAddress, uint16_t destPort)
 {
     return openConnection(destAddress, destPort, std::string(), 0);
@@ -192,50 +158,50 @@ void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
 
 void TCPConnectionManager::readDataFromSocket(std::stop_token st, TCPConnInfo connData) const
 {
-        std::unique_ptr<char> buffer(new char[1024]);
-        while (!m_finish && !st.stop_requested()) {
-            WSAPOLLFD fd{};
-            fd.fd = connData.sockfd;
-            fd.events = POLLIN; // Wait for incoming data
+    std::unique_ptr<char> buffer(new char[1024]);
+    while (!m_finish && !st.stop_requested()) {
+        WSAPOLLFD fd{};
+        fd.fd = connData.sockfd;
+        fd.events = POLLIN; // Wait for incoming data
 
-            const int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
-            if (wsaPollRes > 0) {
-                // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
-                // buf parameter will If the connection has been gracefully closed, the return value is zero.
-                // Otherwise, a value of SOCKET_ERROR is returned
-                const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
-                if (recvRes == SOCKET_ERROR) {
-                    std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
-                    return;
-                }
-
-                if (recvRes == 0) {
-                    std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
-                    return;
-                }
-
-                if (m_printReceivedData) {
-                    std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
-                    for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
-                    std::cout << std::endl;
-                }
-
-                const auto conn = getConnectionDirect(connData.sockfd);
-                if(!conn) {
-                    std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
-                    return;
-                }
-
-                std::vector<char> bytes(buffer.get(), buffer.get() + recvRes);
-                conn->newDataArrived(bytes);
-            } else if (wsaPollRes == 0) {
-                // Timeout: This is normal and not an error - just means "nothing happened in 2 seconds"
-            } else {
-                std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
+        const int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
+        if (wsaPollRes > 0) {
+            // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
+            // buf parameter will If the connection has been gracefully closed, the return value is zero.
+            // Otherwise, a value of SOCKET_ERROR is returned
+            const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
+            if (recvRes == SOCKET_ERROR) {
+                std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
                 return;
             }
+
+            if (recvRes == 0) {
+                std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
+                return;
+            }
+
+            if (m_printReceivedData) {
+                std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
+                for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
+                std::cout << std::endl;
+            }
+
+            const auto conn = getConnectionDirect(connData.sockfd);
+            if(!conn) {
+                std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
+                return;
+            }
+
+            std::vector<char> bytes(buffer.get(), buffer.get() + recvRes);
+            conn->newDataArrived(bytes);
+        } else if (wsaPollRes == 0) {
+            // Timeout: This is normal and not an error - just means "nothing happened in 2 seconds"
+        } else {
+            std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
+            return;
         }
     }
+}
 
 void TCPConnectionManager::closeConn(const TCPConnInfo connInfo) {
     //std::clog << "TCPConnectionManager::closeConn for connInfo.sockfd " << connInfo.sockfd << std::endl;
@@ -383,7 +349,6 @@ bool TCPConnectionManager::write(TCPConnInfo connData, const std::string& msg)
     return true;
 }
 
-
 void TCPConnectionManager::addConnection(SOCKET sockfd, std::shared_ptr<TCPConnection> conn)
 {
     std::lock_guard lock(m_connectionsMutex);
@@ -414,4 +379,38 @@ std::weak_ptr<TCPConnection> TCPConnectionManager::getConnection(const TCPConnIn
     std::lock_guard lock(m_connectionsMutex);
 
     return m_connections.at(connInfo.sockfd);
+}
+
+std::string TCPConnectionManager::dnsLookup(const std::string& host, uint16_t ipVersion)
+{
+    char ipAddress[INET6_ADDRSTRLEN]; // choose directly the maximum length which is for ipv6;
+
+    struct addrinfo hints{};
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = (ipVersion == 6 ? AF_INET6 : AF_INET); // if it's 6 we choose IPv6, else we go with IPv4
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* res;
+    int status = 0;
+    if ((status = getaddrinfo(host.c_str(), NULL, &hints, &res)) != 0) {
+        std::cerr << "getaddrinfo failed: " << gai_strerror(status) << std::endl;
+        return {};
+    }
+
+    // for (auto p = res; p != NULL; p = p->ai_next); this is only one. we looked for either IPv4 or IPv6. if we
+    // looked for both it would have been a linked list
+    void* addr;
+    if (res->ai_family == AF_INET) {
+        struct sockaddr_in* ipv4 = (struct sockaddr_in*)res->ai_addr;
+        addr = &(ipv4->sin_addr);
+        inet_ntop(res->ai_family, addr, ipAddress, sizeof ipAddress);
+    } else {
+        struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)res->ai_addr;
+        addr = &(ipv6->sin6_addr);
+        inet_ntop(res->ai_family, addr, ipAddress, sizeof ipAddress);
+    }
+
+    freeaddrinfo(res); // free the linked list
+
+    return ipAddress;
 }

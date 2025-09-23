@@ -192,50 +192,50 @@ void TCPConnectionManager::startReadingData(const TCPConnInfo& connInfo)
 
 void TCPConnectionManager::readDataFromSocket(std::stop_token st, TCPConnInfo connData) const
 {
-        std::unique_ptr<char> buffer(new char[1024]);
-        while (!m_finish && !st.stop_requested()) {
-            WSAPOLLFD fd{};
-            fd.fd = connData.sockfd;
-            fd.events = POLLIN; // Wait for incoming data
+    std::unique_ptr<char> buffer(new char[1024]);
+    while (!m_finish && !st.stop_requested()) {
+        WSAPOLLFD fd{};
+        fd.fd = connData.sockfd;
+        fd.events = POLLIN; // Wait for incoming data
 
-            const int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
-            if (wsaPollRes > 0) {
-                // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
-                // buf parameter will If the connection has been gracefully closed, the return value is zero.
-                // Otherwise, a value of SOCKET_ERROR is returned
-                const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
-                if (recvRes == SOCKET_ERROR) {
-                    std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
-                    return;
-                }
-
-                if (recvRes == 0) {
-                    std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
-                    return;
-                }
-
-                if (m_printReceivedData) {
-                    std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
-                    for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
-                    std::cout << std::endl;
-                }
-
-                const auto conn = getConnectionDirect(connData.sockfd);
-                if(!conn) {
-                    std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
-                    return;
-                }
-
-                std::vector<char> bytes(buffer.get(), buffer.get() + recvRes);
-                conn->newDataArrived(bytes);
-            } else if (wsaPollRes == 0) {
-                // Timeout: This is normal and not an error - just means "nothing happened in 2 seconds"
-            } else {
-                std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
+        const int wsaPollRes = WSAPoll(&fd, 1, 2000); // 2 seconds timeout
+        if (wsaPollRes > 0) {
+            // If no error occurs, recv returns the number of bytes received and the buffer pointed to by the
+            // buf parameter will If the connection has been gracefully closed, the return value is zero.
+            // Otherwise, a value of SOCKET_ERROR is returned
+            const int recvRes = recv(connData.sockfd, buffer.get(), 1024, 0);
+            if (recvRes == SOCKET_ERROR) {
+                std::cerr << std::format("receive failed on socket {}; closing connection!\n", connData.sockfd);
                 return;
             }
+
+            if (recvRes == 0) {
+                std::clog << std::format("connection on socket {} was closed by peer\n", connData.sockfd);
+                return;
+            }
+
+            if (m_printReceivedData) {
+                std::cout << "Number of bytes read: " << recvRes << "; Message: " << std::endl;
+                for (int i = 0; i < recvRes; ++i) std::cout << *(buffer.get() + i);
+                std::cout << std::endl;
+            }
+
+            const auto conn = getConnectionDirect(connData.sockfd);
+            if(!conn) {
+                std::cerr << std::format("socket {} is no longer an active connection", connData.sockfd);
+                return;
+            }
+
+            std::vector<char> bytes(buffer.get(), buffer.get() + recvRes);
+            conn->newDataArrived(bytes);
+        } else if (wsaPollRes == 0) {
+            // Timeout: This is normal and not an error - just means "nothing happened in 2 seconds"
+        } else {
+            std::cerr << "WSAPoll() failed with error: " << WSAGetLastError() << std::endl;
+            return;
         }
     }
+}
 
 void TCPConnectionManager::closeConn(const TCPConnInfo connInfo) {
     //std::clog << "TCPConnectionManager::closeConn for connInfo.sockfd " << connInfo.sockfd << std::endl;
